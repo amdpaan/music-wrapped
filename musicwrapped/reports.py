@@ -67,6 +67,13 @@ def top_cards(plays, n, theme_songs="green", theme_artists="pink", theme_albums=
             + R.card(f"Top {n} albums", R.ranked(S.top_albums(plays, n)), theme_albums, badge=ALL_DEVICES))
 
 
+def genres_card(plays, n):
+    rows = S.top_genres(plays, n)
+    known = sum(1 for p in plays if p.genre)
+    return R.card(f"Top {len(rows) or n} genres", R.genre_bars(rows, known), "dark", badge=ALL_DEVICES, wide=True,
+                  note="Share of plays with a known genre; covers show each genre's most-played song")
+
+
 def hero_stats(plays, compare=None):
     mac, other = device_split(plays)
     h = S.hours(plays)
@@ -112,6 +119,7 @@ def weekly(con, week_start):
     skipped = [(t, a, f"{s} of {n} skipped") for t, a, s, n in S.most_skipped(plays)]
     new = [(r.name, "first time this week", R.fmt_plays(r.plays)) for r in S.new_artists(con, plays, start)]
     body = (top_cards(plays, 5)
+            + genres_card(plays, 5)
             + R.card("When you listened", R.heatmap(S.heatmap(plays)), "dark",
                      note="Minutes per hour, Monday to Sunday", badge=MAC_ONLY, wide=True)
             + R.card("On repeat", R.simple_list(repeat, "No song hit 5 plays this week."), "orange",
@@ -143,6 +151,7 @@ def monthly(con, y, m, so_far=False):
     ph = S.hours(S.plays_between(con, ps, pe))
     title = f"{calendar.month_name[m]} {y}"
     body = (top_cards(plays, 10)
+            + genres_card(plays, 5)
             + R.card("Hours per week", R.bars(week_bars(plays, start, q_end)), "dark",
                      note="Listening hours in each week of the month (weeks start Monday)", badge=ALL_DEVICES, wide=True)
             + R.card("How your top artists moved", artist_changes(plays, start, q_end), "dark",
@@ -183,6 +192,7 @@ def yearly(con, y):
                      if disc else R.headline("—", "No new artists this year"), "pink",
                      note="Most-played artist you hadn't played before this year")
             + top_cards(plays, 10, "teal", "lilac", "purple")
+            + genres_card(plays, 5)
             + R.card("Top song of each month", R.months(month_items), "blue", badge=ALL_DEVICES, wide=True)
             + R.card("Hours per month", R.bars(month_hours), "dark", badge=ALL_DEVICES, wide=True))
     html = R.page(f"Wrapped {y}", f"{y} Wrapped · January to November", f"Your {y}, Wrapped",
@@ -196,9 +206,12 @@ def alltime(con):
     songs = S.library_top(con, "songs", 25)
     artists = S.library_top(con, "artists", 25)
     albums = S.library_top(con, "albums", 25)
+    genres = S.library_top(con, "genres", 10)
     body = (R.card("Top 25 songs", R.ranked(songs, "Run a backfill first."), "green")
             + R.card("Top 25 artists", R.ranked(artists, "Run a backfill first.", round_=True), "pink")
-            + R.card("Top 25 albums", R.ranked(albums, "Run a backfill first."), "purple"))
+            + R.card("Top 25 albums", R.ranked(albums, "Run a backfill first."), "purple")
+            + R.card(f"Top {len(genres) or 10} genres", R.genre_bars(genres, sum(r.plays for r in S.library_top(con, "genres", 10_000))),
+                     "dark", wide=True, note="By library play count; covers show each genre's most-played song"))
     stats = [("library plays", f"{lib['plays']:,}"),
              ("est. hours (library)", f"{lib['hours']:,.0f}"),
              ("hours logged", f"{lt['hours']:,.1f}"),
@@ -219,6 +232,7 @@ def custom(con, start, end_incl, label=None):
     skipped = [(t, a, f"{s} of {n} skipped") for t, a, s, n in S.most_skipped(plays)]
     new = [(r.name, "new in this period", R.fmt_plays(r.plays)) for r in S.new_artists(con, plays, start)]
     body = (top_cards(plays, 10)
+            + genres_card(plays, 5)
             + R.card("Hours per week", R.bars(week_bars(plays, start, end)), "dark", badge=ALL_DEVICES, wide=True)
             + R.card("When you listened", R.heatmap(S.heatmap(plays)), "dark",
                      note="Minutes per hour, Monday to Sunday", badge=MAC_ONLY, wide=True)

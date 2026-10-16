@@ -71,6 +71,17 @@ li.first .art.round{border-radius:50%}
 .month{display:flex;gap:10px;align-items:center}
 .month .art{width:40px;height:40px;font-size:16px}
 .month > div{min-width:0}
+.genres{display:grid;gap:10px}
+.genre{display:grid;grid-template-columns:28px 44px minmax(90px,220px) 1fr auto;align-items:center;gap:14px}
+.genre .n{font-weight:900;font-size:18px;opacity:.7;text-align:right}
+.genre b{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.genre .gt{height:14px;border-radius:0 4px 4px 0;background:rgba(255,255,255,.07);overflow:hidden}
+.genre .gt i{display:block;height:100%;background:#1ed760;border-radius:0 4px 4px 0;min-width:2px}
+.genre:hover .gt i{background:#6ff09c}
+.genre .v{font-weight:800;font-size:14px;white-space:nowrap;text-align:right;min-width:92px}
+.genre .v small{display:block;font-weight:600;font-size:11px;color:var(--muted)}
+@media (max-width:560px){.genre{grid-template-columns:22px 36px 1fr auto;gap:10px}.genre .art{width:36px;height:36px}
+  .genre .gt{grid-column:3/5;grid-row:2}}
 ol.rank li.first .n{font-size:34px;opacity:1}
 ol.rank li.first .t b{font-size:24px;letter-spacing:-.01em;white-space:normal;line-height:1.15;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
@@ -308,6 +319,21 @@ def links(items, empty="None yet."):
     lis = "".join(f'<li><a href="{e(h)}"><span class="t"><b>{e(t)}</b><span>{e(s)}</span></span>'
                   f'<span class="v">{e(v)}</span></a></li>' for h, t, s, v in items)
     return f'<ol class="rank">{lis}</ol>'
+
+
+def genre_bars(rows, total, empty="No genre info yet."):
+    """rows: stats.Row per genre. Bars are scaled to the top genre; labels show the share of all plays."""
+    if not rows:
+        return f'<div class="empty">{e(empty)}</div>'
+    top = rows[0].plays or 1
+    out = []
+    for i, r in enumerate(rows, 1):
+        share = r.plays / total * 100 if total else 0
+        out.append(f'<div class="genre" data-tip="{e(r.name)}: {e(fmt_plays(r.plays))}, {share:.1f}% of plays">'
+                   f'<span class="n">{i}</span>{cover(r.pid, r.name)}<b>{e(r.name)}</b>'
+                   f'<div class="gt"><i style="width:{r.plays / top * 100:.1f}%"></i></div>'
+                   f'<span class="v">{"&lt;1" if 0 < share < 1 else f"{share:.0f}"}%<small>{e(fmt_plays(r.plays))}</small></span></div>')
+    return f'<div class="genres">{"".join(out)}</div>'
 
 
 def _ramp(v, vmax):

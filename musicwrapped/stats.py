@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict, namedtuple
 from datetime import date, datetime, timedelta
 
-Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid")
+Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid genre")
 # pid: a track to take the cover from (for artists/albums: their most-played track).
 Row = namedtuple("Row", "name sub plays seconds pid", defaults=(None,))
 
@@ -17,14 +17,17 @@ def ts_of(d):
 
 def plays_between(con, start, end):
     """Plays with start time in [start, end), where start/end are dates or datetimes."""
+    # Genre: what Music reported for the play, else the library track's (older and other-device plays).
     rows = con.execute(
-        "SELECT * FROM plays WHERE ts >= ? AND ts < ? ORDER BY ts", (ts_of(start), ts_of(end)))
+        """SELECT p.*, COALESCE(NULLIF(p.genre, ''), l.genre) AS g FROM plays p
+           LEFT JOIN library l ON l.persistent_id = p.persistent_id
+           WHERE p.ts >= ? AND p.ts < ? ORDER BY p.ts""", (ts_of(start), ts_of(end)))
     out = []
     for r in rows:
         secs = r["seconds_listened"] if r["source"] == "mac" else (r["duration"] or r["seconds_listened"])
         out.append(Play(r["ts"], datetime.fromtimestamp(r["ts"]), r["title"], r["artist"] or "Unknown artist",
                         r["album"] or "", r["duration"] or 0, secs or 0, r["skipped"], r["source"],
-                        r["persistent_id"]))
+                        r["persistent_id"], (r["g"] or "").strip()))
     return out
 
 
@@ -68,6 +71,12 @@ def top_albums(plays, n):
         if p.album:
             artists[p.album][p.artist] += 1
     return [r._replace(sub=artists[r.name].most_common(1)[0][0]) for r in _rank(g, pids, n)]
+
+
+def top_genres(plays, n):
+    """Plays with an unknown genre are left out."""
+    g, pids = _group(plays, lambda p: p.genre or None, lambda p: Row(p.genre, "", 0, 0))
+    return _rank(g, pids, n)
 
 
 def on_repeat(plays, min_plays=5):
@@ -162,6 +171,9 @@ def library_top(con, kind, n):
                "ORDER BY t.play_count DESC LIMIT 1)")
     if kind == "songs":
         q = f"SELECT title, artist, play_count, play_count * COALESCE(duration, 0), persistent_id {base} ORDER BY 3 DESC, 4 DESC LIMIT ?"
+    elif kind == "genres":
+        q = (f"SELECT genre, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='genre')} "
+             f"{base} AND COALESCE(genre, '') != '' GROUP BY genre ORDER BY 3 DESC, 4 DESC LIMIT ?")
     elif kind == "artists":
         q = (f"SELECT artist, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='artist')} "
              f"{base} AND artist != '' GROUP BY artist ORDER BY 3 DESC, 4 DESC LIMIT ?")

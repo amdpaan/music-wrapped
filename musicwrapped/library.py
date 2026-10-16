@@ -21,7 +21,7 @@ const t = m.libraryPlaylists[0].tracks;
 const iso = d => (d ? d.toISOString() : null);
 JSON.stringify({
   pid: t.persistentID(), title: t.name(), artist: t.artist(), album: t.album(),
-  duration: t.duration(), plays: t.playedCount(),
+  duration: t.duration(), plays: t.playedCount(), genre: t.genre(),
   played: t.playedDate().map(iso), added: t.dateAdded().map(iso),
 });
 """
@@ -30,6 +30,9 @@ JSON.stringify({
 # that stopped earlier is logged by us but isn't in the library count, so only Mac plays
 # that reached this fraction of the track are subtracted from a play-count increase.
 COMPLETED_FRACTION = 0.9
+# A play also counts as finished if it spanned the whole track in wall-clock time (within this many
+# seconds) and at least half was heard: covers listening time the logger missed while restarting.
+SPAN_SLACK = 10
 
 
 class MusicError(RuntimeError):
@@ -96,6 +99,7 @@ def _parse(d):
             "title": d["title"][i] or "",
             "artist": d["artist"][i] or "",
             "album": d["album"][i] or "",
+            "genre": (d["genre"][i] or "").strip(),
             "duration": float(d["duration"][i] or 0),
             "plays": int(d["plays"][i] or 0),
             "played_ts": _iso_to_ts(d["played"][i]),
@@ -130,18 +134,18 @@ def snapshot(con, kind="manual", tracks=None, now=None):
                 # Increases after this are counted; Mac plays already logged stay as they are.
                 delta = 0
                 con.execute(
-                    """INSERT INTO library (persistent_id, title, artist, album, duration, play_count,
+                    """INSERT INTO library (persistent_id, title, artist, album, genre, duration, play_count,
                        played_ts, added_ts, baseline_play_count, first_seen_ts, updated_ts)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                    (pid, t["title"], t["artist"], t["album"], t["duration"], t["plays"],
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (pid, t["title"], t["artist"], t["album"], t["genre"], t["duration"], t["plays"],
                      t["played_ts"], t["added_ts"], t["plays"], now, now))
             else:
                 delta = t["plays"] - row["play_count"]
                 since = prev
                 con.execute(
-                    """UPDATE library SET title=?, artist=?, album=?, duration=?, play_count=?,
+                    """UPDATE library SET title=?, artist=?, album=?, genre=?, duration=?, play_count=?,
                        played_ts=?, added_ts=?, updated_ts=?, in_library=1 WHERE persistent_id=?""",
-                    (t["title"], t["artist"], t["album"], t["duration"], t["plays"],
+                    (t["title"], t["artist"], t["album"], t["genre"], t["duration"], t["plays"],
                      t["played_ts"], t["added_ts"], now, pid))
             if delta > 0 and not first:
                 added_plays += _record_other_plays(con, t, delta, since, now)
@@ -162,8 +166,9 @@ def _record_other_plays(con, t, delta, since, now):
     mac = con.execute(
         """SELECT COUNT(*) FROM plays WHERE source='mac' AND persistent_id=?
            AND ended_ts > ? AND ended_ts <= ?
-           AND (duration IS NULL OR duration = 0 OR seconds_listened >= duration * ?)""",
-        (t["pid"], since or 0, now, COMPLETED_FRACTION)).fetchone()[0]
+           AND (duration IS NULL OR duration = 0 OR seconds_listened >= duration * ?
+                OR (ended_ts - ts >= duration - ? AND seconds_listened >= duration * 0.5))""",
+        (t["pid"], since or 0, now, COMPLETED_FRACTION, SPAN_SLACK)).fetchone()[0]
     other = delta - mac
     if other <= 0:
         return 0

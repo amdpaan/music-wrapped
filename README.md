@@ -127,6 +127,13 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
 Restore from GitHub: `sqlite3 plays.db < plays.sql`. From a local copy, copy it over `plays.db`. Stop the
 logger first in either case: `launchctl bootout gui/$(id -u)/com.musicwrapped.logger`, then re-run `./install.sh`.
 
+## Top genres
+
+Every report has a **Top genres** card: rank, the cover of each genre's most-played song, a bar, and the
+genre's share of plays (top 5; top 10 by library play count on the all-time page). The logger stores the
+genre Music reports for each Mac play. Older plays and other-device plays use the library track's genre,
+which every snapshot reads. Plays with no genre are left out of the percentages.
+
 ## Album artwork
 
 Top songs, artists (round, using their most-played song's cover) and albums show album art, as do the yearly
@@ -149,7 +156,7 @@ Songs without artwork, or streamed but not in your library, show their first let
   A track seen for the first time (in the backfill or any later snapshot, e.g. a song you just added on your
   iPhone) only gets a **baseline**: its existing play count is never counted as plays; only increases after
   that are. Music only increments a play count when a song plays to (about) the end, so Mac plays that reached ≥ 90% of
-  the track are subtracted, and the rest of the increase becomes `source = 'other'` rows. Their time is the
+  the track (or ran from its start to its end with at least half heard) are subtracted, and the rest of the increase becomes `source = 'other'` rows. Their time is the
   track's "last played" date (the exact times of several plays aren't known), and listening time is
   estimated as the track length. Skips can't be known for them.
 - **All-time** reports use the library play counts directly, the true total across all devices.

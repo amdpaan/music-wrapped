@@ -25,6 +25,12 @@ ARTISTS = {
 }
 
 
+GENRES = {"Neon Harbor": "Indie Pop", "Mira Sol": "R&B/Soul", "The Quiet Engines": "Alternative",
+          "Kaito Rain": "Lo-Fi", "Lumen & Ash": "Alternative", "Saffron Youth": "Indie Pop",
+          "Polar Arcade": "Electronic", "Dahlia Vex": "Rock", "Atlas Fields": "Singer/Songwriter",
+          "Juniper Static": "Electronic"}
+
+
 def build():
     artwork.ENABLED = False  # the demo's tracks aren't in your library; covers show letters
     root = paths.SUPPORT / "demo"
@@ -79,9 +85,9 @@ def build():
         first = int(start.timestamp()) - 86400
         for t in tracks:
             base = 0 if t["artist"] in late else rnd.randint(0, 60)
-            con.execute("""INSERT INTO library (persistent_id, title, artist, album, duration, play_count, played_ts,
-                           added_ts, baseline_play_count, first_seen_ts, updated_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                        (t["pid"], t["title"], t["artist"], t["album"], t["duration"], base + counts[t["pid"]],
+            con.execute("""INSERT INTO library (persistent_id, title, artist, album, genre, duration, play_count, played_ts,
+                           added_ts, baseline_play_count, first_seen_ts, updated_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (t["pid"], t["title"], t["artist"], t["album"], GENRES[t["artist"]], t["duration"], base + counts[t["pid"]],
                          None, first if t["artist"] not in late else int((now - timedelta(days=late[t["artist"]])).timestamp()),
                          base, first, int(time.time())))
         con.execute("INSERT INTO snapshots (ts, kind, tracks, total_play_count, other_plays_added) VALUES (?,?,?,?,?)",

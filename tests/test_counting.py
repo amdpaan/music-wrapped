@@ -15,8 +15,8 @@ from musicwrapped import db, library, reports, stats  # noqa: E402
 T0 = int(datetime(2026, 10, 5, 12).timestamp())  # Monday
 
 
-def track(pid, plays, played_ts=None, added_ts=T0 - 86400 * 30, title="Song", artist="Artist"):
-    return {"pid": pid, "title": title, "artist": artist, "album": "Album", "duration": 200.0,
+def track(pid, plays, played_ts=None, added_ts=T0 - 86400 * 30, title="Song", artist="Artist", genre="Pop"):
+    return {"pid": pid, "title": title, "artist": artist, "album": "Album", "genre": genre, "duration": 200.0,
             "plays": plays, "played_ts": played_ts, "added_ts": added_ts}
 
 
@@ -61,6 +61,17 @@ class Counting(unittest.TestCase):
         r = library.snapshot(self.con, tracks=[track("A", 15, played_ts=T0 + 3000)], now=T0 + 7200)
         self.assertEqual(r["other_plays"], 0)
 
+    def test_play_spanning_the_track_counts_as_finished(self):
+        # The logger missed ~20 s while restarting: 186 s heard of 207 s, but the play ran start to end.
+        library.snapshot(self.con, tracks=[track("A", 10)], now=T0)
+        self.con.execute("""INSERT INTO plays (ts, played_at, title, artist, album, duration, seconds_listened,
+                            skipped, source, persistent_id, ended_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                         (T0 + 100, library.local_iso(T0 + 100), "Song", "Artist", "Album", 207.0, 186.0, 0,
+                          "mac", "A", T0 + 300))
+        self.con.commit()
+        r = library.snapshot(self.con, tracks=[track("A", 11)], now=T0 + 3600)
+        self.assertEqual(r["other_plays"], 0)
+
     def test_new_track_is_baseline_only(self):
         library.snapshot(self.con, tracks=[track("A", 1)], now=T0)
         mac_play(self.con, "B", T0 + 100, 200)  # logged on the Mac before B was ever snapshotted
@@ -96,6 +107,17 @@ class Counting(unittest.TestCase):
         self.assertEqual([r.name for r in stats.new_artists(self.con, plays, date(2026, 10, 6))], ["Fresh"])
         # In a later period, Fresh's baseline plays (first seen before it) make it known.
         self.assertEqual(stats.new_artists(self.con, plays, date(2026, 10, 12)), [])
+
+    def test_genres_fall_back_to_library(self):
+        library.snapshot(self.con, tracks=[track("A", 0, genre="Rock"), track("B", 0, genre="Jazz")], now=T0)
+        day = int(datetime(2026, 10, 6, 9).timestamp())
+        for i in range(3):
+            mac_play(self.con, "A", day + i * 300, 200)  # no genre stored: comes from the library
+        mac_play(self.con, "B", day + 2000, 200)
+        self.con.execute("UPDATE plays SET genre='Metal' WHERE id = (SELECT MAX(id) FROM plays)")  # reported by Music
+        plays = stats.plays_between(self.con, date(2026, 10, 6), date(2026, 10, 7))
+        self.assertEqual([(r.name, r.plays) for r in stats.top_genres(plays, 5)], [("Rock", 3), ("Metal", 1)])
+        self.assertEqual(stats.top_genres(plays, 1)[0].pid, "A")
 
 
 if __name__ == "__main__":

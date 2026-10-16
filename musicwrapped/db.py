@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS plays (
     skipped INTEGER,                  -- 1/0 for mac, NULL for other (unknown)
     source TEXT NOT NULL,
     persistent_id TEXT,
-    ended_ts INTEGER NOT NULL         -- when the play was recorded
+    ended_ts INTEGER NOT NULL,        -- when the play was recorded
+    genre TEXT                        -- mac: from Music's notification; NULL: use the library's
 );
 CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts);
 CREATE INDEX IF NOT EXISTS plays_pid ON plays(persistent_id, ended_ts);
@@ -28,7 +29,7 @@ CREATE INDEX IF NOT EXISTS plays_pid ON plays(persistent_id, ended_ts);
 -- Latest known state of every library track (the all-time stats).
 CREATE TABLE IF NOT EXISTS library (
     persistent_id TEXT PRIMARY KEY,
-    title TEXT, artist TEXT, album TEXT,
+    title TEXT, artist TEXT, album TEXT, genre TEXT,
     duration REAL,
     play_count INTEGER NOT NULL DEFAULT 0,
     played_ts INTEGER,                -- last played date
@@ -57,4 +58,17 @@ def connect():
     con = sqlite3.connect(str(paths.DB), timeout=10)
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
+
+
+# Columns added after the first release: (table, column, type).
+ADDED_COLUMNS = [("plays", "genre", "TEXT"), ("library", "genre", "TEXT")]
+
+
+def _migrate(con):
+    for table, col, typ in ADDED_COLUMNS:
+        cols = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        if col not in cols:
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+    con.commit()

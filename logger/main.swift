@@ -84,11 +84,16 @@ final class DB {
                 skipped INTEGER,
                 source TEXT NOT NULL,
                 persistent_id TEXT,
-                ended_ts INTEGER NOT NULL
+                ended_ts INTEGER NOT NULL,
+                genre TEXT
             );
             CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts);
             CREATE INDEX IF NOT EXISTS plays_pid ON plays(persistent_id, ended_ts);
             """)
+        // Databases from before genres were tracked (musicwrapped/db.py migrates the same way).
+        if !rows("PRAGMA table_info(plays)", []).contains(where: { $0.count > 1 && $0[1] == "genre" }) {
+            exec("ALTER TABLE plays ADD COLUMN genre TEXT")
+        }
     }
 
     func exec(_ sql: String) {
@@ -102,8 +107,8 @@ final class DB {
     func insertPlay(_ p: Play, listened: Double, ended: Date) {
         let sql = """
             INSERT INTO plays (ts, played_at, title, artist, album, duration,
-                               seconds_listened, skipped, source, persistent_id, ended_ts)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'mac', ?, ?)
+                               seconds_listened, skipped, source, persistent_id, ended_ts, genre)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'mac', ?, ?, ?)
             """
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return }
@@ -119,6 +124,7 @@ final class DB {
         sqlite3_bind_int(st, 8, skipped ? 1 : 0)
         if let pid = p.pid { sqlite3_bind_text(st, 9, pid, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 9) }
         sqlite3_bind_int64(st, 10, Int64(ended.timeIntervalSince1970))
+        if let g = p.genre, !g.isEmpty { sqlite3_bind_text(st, 11, g, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 11) }
         if sqlite3_step(st) != SQLITE_DONE {
             log("insert failed: \(String(cString: sqlite3_errmsg(handle)))")
         }
@@ -230,6 +236,7 @@ struct Play: Codable {
     let title: String
     let artist: String
     let album: String
+    var genre: String? = nil       // optional so pending.json files from older versions still decode
     let duration: Double
     let start: Date
     var listened: Double = 0       // seconds accumulated before the current playing stretch
@@ -314,7 +321,8 @@ final class Tracker {
         if title.isEmpty && pid == nil { return nil }
         let ms = (info["Total Time"] as? NSNumber)?.doubleValue ?? 0
         return Play(key: pid ?? "\(title)|\(artist)", pid: pid, title: title, artist: artist,
-                    album: info["Album"] as? String ?? "", duration: ms / 1000, start: now)
+                    album: info["Album"] as? String ?? "", genre: info["Genre"] as? String,
+                    duration: ms / 1000, start: now)
     }
 
     /// Ends the current play and stores it if it was listened to long enough.
