@@ -9,6 +9,7 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 - **Picks up iPhone (and other device) plays** from synced play counts, once a day and before every report.
 - **Generates Wrapped pages** (weekly, monthly, yearly, all-time and custom ranges) as single self-contained
   HTML files, with a clickable macOS notification when a scheduled one is ready.
+- **Backs up your play history** every Sunday: dated copies on your Mac, plus an optional private GitHub repo.
 - **Writes `summary.json`** (this week's hours, top artist, top song) for desktop widgets.
 
 ## Requirements
@@ -37,7 +38,7 @@ The installer:
    |---|---|---|
    | `com.musicwrapped.logger` | at login, kept alive | logs Mac plays |
    | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (other-device plays) |
-   | `com.musicwrapped.weekly` | Sunday 22:00 | weekly report + all-time refresh |
+   | `com.musicwrapped.weekly` | Sunday 22:00 | weekly report + all-time refresh + backup |
    | `com.musicwrapped.monthly` | 1st of the month, 09:00 | last month's report |
    | `com.musicwrapped.yearly` | 1 December, 09:05 | Jan–Nov Wrapped |
 
@@ -54,9 +55,11 @@ To uninstall: `./uninstall.sh` (keeps your data) or `./uninstall.sh --purge`.
 | **"sh" / "python3" / "osascript" wants access to control "Music"** (wording varies) | the same library read, when launchd runs the daily snapshot. The installer runs that job once so this prompt shows up during install | Yes |
 | **"Background Items Added"** notification (one per agent, shown as "sh" or "music-wrapped-logger") | macOS tells you about new login/background items | Leave them enabled in System Settings → General → Login Items & Extensions |
 | **"terminal-notifier" would like to send notifications** | shows up with the first report notification | Allow |
-| Poll mode only: **"music-wrapped-logger" wants access to control "Music"** | only if you switch to polling (see below) | Yes |
+| **"music-wrapped-logger" wants access to control "Music"** | when the logger starts while Music is open, it asks once what's playing (see below). Poll mode uses it every 30 s | Yes |
 
-The default event-driven logger needs **no** permissions: it only listens to notifications that Music broadcasts.
+Tracking itself needs no permission: the logger only listens to notifications that Music broadcasts.
+The one AppleScript call at startup only catches a song that was already playing. If you deny it, everything
+else still works.
 Manage these later in System Settings → Privacy & Security → Automation.
 
 ## Usage
@@ -73,9 +76,12 @@ music-wrapped custom 2026-09-01 2026-12-31 --name "Semester 1"
 
 music-wrapped open                         # newest report of any kind
 music-wrapped open weekly                  # reports/weekly/latest.html
+music-wrapped home                         # page listing every report you've generated
 
 music-wrapped status                       # what's logged, agents loaded, latest reports
 music-wrapped snapshot                     # pick up iPhone plays now
+music-wrapped backup                       # back up plays.db now (also runs every Sunday)
+music-wrapped backup --setup-github        # set up the private GitHub backup repo (once)
 music-wrapped summary                      # rewrite + print summary.json
 music-wrapped doctor                       # check that Music's notifications arrive
 music-wrapped demo                         # preview every report with fake data
@@ -103,8 +109,25 @@ music-wrapped custom 2026-10-01 2026-10-31 --name "Test"
 iPhone plays show up after the **second** snapshot (the first one is only a baseline): play something on
 your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snapshot`.
 
+## Backups
+
+`plays.db` is the only copy of your Mac play history, so it's backed up every Sunday with the weekly report
+(or anytime with `music-wrapped backup`):
+
+- **On your Mac:** `backups/plays-YYYY-MM-DD.db`, the newest 8 kept. This protects against corruption or accidental deletion.
+- **On GitHub (optional):** run `music-wrapped backup --setup-github` once. It creates a **private** repo
+  (`<you>/music-wrapped-data`; pass a name to change it) and pushes `plays.sql`, a plain-text dump, so each
+  commit only stores what changed. It never uses this public code repo, and it commits as your GitHub noreply address.
+
+Restore from GitHub: `sqlite3 plays.db < plays.sql`. From a local copy, copy it over `plays.db`. Stop the
+logger first in either case: `launchctl bootout gui/$(id -u)/com.musicwrapped.logger`, then re-run `./install.sh`.
+
 ## How counting works
 
+- **Restarts**: when the logger is stopped (logout, shutdown, update), the song in progress is saved to
+  `pending.json`, not logged. On start, the logger asks Music what's playing. If it's the same song (within
+  10 minutes), it carries on with the same play, so one listen is never logged twice. Otherwise the saved
+  song is logged and the current one is tracked from that moment.
 - **Mac plays**: a play counts after **30 s** of actual listening (pauses and sleep don't count). It's
   marked **skipped** if it stopped before 50% of the track. Each play is one row: timestamp, title, artist,
   album, duration, seconds listened, skipped and `source = 'mac'`.
@@ -131,13 +154,17 @@ Everything personal lives outside the repo, in `$HOME/Library/Application Suppor
 ```
 plays.db              SQLite: plays (every play, kept forever), library (all-time stats), snapshots (log)
 summary.json          widget summary, rewritten after every play and report
+pending.json          song in progress while the logger restarts (usually absent)
 config.json           {"mode": "notifications" | "poll"}
+reports/index.html    home page listing every report (music-wrapped home)
 reports/weekly/       2026-W42.html … latest.html
 reports/monthly/      2026-10.html … latest.html
 reports/yearly/       2026.html … latest.html
 reports/alltime/      2026-10-17.html … latest.html
 reports/custom/       2026-09-01_to_2026-12-31_semester-1.html … latest.html
 logs/                 launchd job output
+backups/              weekly copies of plays.db (newest 8)
+backup-repo/          clone of your private GitHub backup repo
 bin/                  the compiled logger
 demo/                 output of `music-wrapped demo`
 ```
@@ -166,7 +193,7 @@ for its state every 30 s via AppleScript, only while Music is running. Switch ba
 
 ## Limitations
 
-- If the logger starts while a song is already playing, that song is picked up at the next play/pause/track change.
+- A song that was already playing when the logger started is counted from that moment, not from its beginning.
 - Plays on other devices only reach the Mac when iCloud syncs play counts, and their exact times are approximate.
 - The Sunday 22:00 weekly report doesn't include the last two hours of Sunday. Re-run
   `music-wrapped report weekly --week <week>` to regenerate it.

@@ -241,7 +241,55 @@ def save(kind, name, html):
     out = folder / f"{name}.html"
     out.write_text(html, encoding="utf-8")
     shutil.copyfile(out, folder / "latest.html")
+    write_index()
     return out
+
+
+def _label(kind, name):
+    """(title, subtitle) for a saved report's file name."""
+    try:
+        if kind == "weekly":
+            start = parse_week(name)
+            return f"Week {start.isocalendar()[1]}, {start.isocalendar()[0]}", fmt_range(start, start + timedelta(days=7))
+        if kind == "monthly":
+            y, m = map(int, name.split("-"))
+            return f"{calendar.month_name[m]} {y}", ""
+        if kind == "yearly":
+            return f"{name} Wrapped", "January – November"
+        if kind == "alltime":
+            return "All time", f"as of {date.fromisoformat(name):%-d %b %Y}"
+        if kind == "custom":
+            m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})_to_(\d{4}-\d{2}-\d{2})(?:_(.+))?", name)
+            s, e_ = date.fromisoformat(m[1]), date.fromisoformat(m[2])
+            title = m[3].replace("-", " ").title() if m[3] else "Custom range"
+            return title, fmt_range(s, e_ + timedelta(days=1))
+    except (ValueError, TypeError, IndexError):
+        pass
+    return name, ""
+
+
+def write_index():
+    """reports/index.html: every saved report, newest first."""
+    sections, counts = [], []
+    themes = {"weekly": "green", "monthly": "pink", "yearly": "purple", "alltime": "orange", "custom": "blue"}
+    titles = {"weekly": "Weekly", "monthly": "Monthly", "yearly": "Yearly", "alltime": "All time", "custom": "Custom"}
+    for kind in paths.REPORT_KINDS:
+        folder = paths.REPORTS / kind
+        files = [p for p in folder.glob("*.html") if p.name != "latest.html"] if folder.exists() else []
+        files.sort(key=lambda p: (p.stat().st_mtime if kind == "custom" else 0, p.stem), reverse=True)
+        items = []
+        for p in files:
+            title, sub = _label(kind, p.stem)
+            updated = datetime.fromtimestamp(p.stat().st_mtime)
+            items.append((f"{kind}/{p.name}", title, sub, f"{updated:%-d %b}"))
+        counts.append((titles[kind].lower(), str(len(files))))
+        sections.append(R.card(titles[kind], R.links(items, "No reports yet."), themes[kind],
+                               note=f"{len(files)} report" + ("" if len(files) == 1 else "s")))
+    html = R.page("Music Wrapped", "Music Wrapped", "All your Wrapped",
+                  "Every report you've generated, newest first", counts, "".join(sections),
+                  "Rebuilt each time a report is generated. Open it with <b>music-wrapped home</b>.")
+    paths.REPORTS.mkdir(parents=True, exist_ok=True)
+    (paths.REPORTS / "index.html").write_text(html, encoding="utf-8")
 
 
 def latest(kind=None):

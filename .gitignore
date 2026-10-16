@@ -8,6 +8,9 @@ reports/
 summary.json
 config.json
 logs/
+backups/
+backup-repo/
+pending.json
 
 # Build output
 build/

@@ -10,6 +10,11 @@
 // Usage:
 //   music-wrapped-logger              run (launchd starts it at login)
 //   music-wrapped-logger --probe 60   print playerInfo notifications for 60 s, then exit
+//
+// When launchd stops the logger, the song in progress is saved to pending.json rather than
+// logged. On start, the logger asks Music once (AppleScript) what's playing: if it's the same
+// song, it carries on with it, so a restart never logs one listen twice. Otherwise the saved
+// song is logged and the current one is tracked from now on.
 
 import AppKit
 import Foundation
@@ -25,6 +30,8 @@ let supportDir = ProcessInfo.processInfo.environment["MUSIC_WRAPPED_HOME"].map {
 let dbPath = supportDir.appendingPathComponent("plays.db").path
 let summaryPath = supportDir.appendingPathComponent("summary.json")
 let configPath = supportDir.appendingPathComponent("config.json")
+let pendingPath = supportDir.appendingPathComponent("pending.json")
+let resumeWindow = 600.0       // resume a saved song only if we were stopped for under 10 min
 
 func log(_ s: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
@@ -175,7 +182,7 @@ func writeSummary(_ db: DB) {
 
 // MARK: - Play tracking
 
-struct Play {
+struct Play: Codable {
     let key: String
     let pid: String?
     let title: String
@@ -190,6 +197,11 @@ struct Play {
     func total(at now: Date) -> Double {
         listened + (playingSince.map { now.timeIntervalSince($0) } ?? 0)
     }
+}
+
+struct Pending: Codable {
+    let play: Play
+    let savedAt: Date
 }
 
 final class Tracker {
@@ -271,6 +283,41 @@ final class Tracker {
         log("play: \(p.artist) – \(p.title) (\(Int(listened))s)")
     }
 
+    /// Saves the song in progress instead of logging it (we're being stopped; see restore()).
+    func suspend(_ now: Date) {
+        guard var p = current else { return }
+        p.listened = p.total(at: now)
+        p.playingSince = nil
+        let pending = Pending(play: p, savedAt: now)
+        if let data = try? JSONEncoder().encode(pending) { try? data.write(to: pendingPath, options: .atomic) }
+    }
+
+    /// Runs once at startup. `info` is what Music is doing right now (nil if it isn't running).
+    func restore(_ info: [AnyHashable: Any]?, now: Date) {
+        var pending: Pending?
+        if let d = try? Data(contentsOf: pendingPath) {
+            pending = try? JSONDecoder().decode(Pending.self, from: d)
+            try? FileManager.default.removeItem(at: pendingPath)
+        }
+        let state = info?["Player State"] as? String ?? "Stopped"
+        let incoming = state == "Stopped" ? nil : info.flatMap { makePlay($0, now: now) }
+        if let p = pending, let inc = incoming, p.play.key == inc.key, now.timeIntervalSince(p.savedAt) < resumeWindow {
+            var cur = p.play
+            cur.playingSince = state == "Playing" ? now : nil
+            current = cur
+            log("resumed: \(cur.artist) – \(cur.title) (\(Int(cur.listened))s so far)")
+            return
+        }
+        if let p = pending {
+            current = p.play
+            finish(p.savedAt)
+        }
+        if let info = info, incoming != nil {
+            handle(info)
+            if let cur = current { log("already playing: \(cur.artist) – \(cur.title)") }
+        }
+    }
+
     func pauseClock(_ now: Date) {
         guard var cur = current, let since = cur.playingSince else { wasPlayingBeforeSleep = false; return }
         cur.listened += now.timeIntervalSince(since)
@@ -298,12 +345,20 @@ let pollScript = NSAppleScript(source: """
     end tell
     """)!
 
-func pollOnce(_ tracker: Tracker) {
-    let running = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == musicBundleID }
-    guard running else { return }
+func musicRunning() -> Bool {
+    NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == musicBundleID }
+}
+
+/// Asks Music for its current state, shaped like a playerInfo notification. nil if Music
+/// isn't running or we're not allowed to control it.
+func queryMusic() -> [AnyHashable: Any]? {
+    guard musicRunning() else { return nil }
     var err: NSDictionary?
     let res = pollScript.executeAndReturnError(&err)
-    if err != nil { return }
+    if let err = err {
+        log("could not ask Music what's playing: \(err[NSAppleScript.errorMessage] ?? err)")
+        return nil
+    }
     let item = { (i: Int) in res.atIndex(i)?.stringValue ?? "" }
     let state = item(1)
     var info: [AnyHashable: Any] = ["Player State": state.prefix(1).uppercased() + state.dropFirst()]
@@ -315,7 +370,11 @@ func pollOnce(_ tracker: Tracker) {
         info["PersistentID"] = item(6)
         info["Player Position"] = NSNumber(value: Double(item(7)) ?? 0)
     }
-    tracker.handle(info)
+    return info
+}
+
+func pollOnce(_ tracker: Tracker) {
+    if let info = queryMusic() { tracker.handle(info) }
 }
 
 // MARK: - Main
@@ -364,9 +423,8 @@ func stopPolling() {
 
 if mode == "poll" {
     log("starting in poll mode (every \(Int(pollInterval)) s while Music is running)")
-    if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == musicBundleID }) {
-        startPolling()
-    }
+    tracker.restore(queryMusic(), now: Date())
+    if musicRunning() { startPolling() }
     ws.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { n in
         if (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier == musicBundleID {
             startPolling()
@@ -374,6 +432,7 @@ if mode == "poll" {
     }
 } else {
     log("starting in notification mode")
+    tracker.restore(queryMusic(), now: Date())
     dnc.addObserver(forName: Notification.Name("com.apple.Music.playerInfo"), object: nil, queue: .main) { n in
         tracker.handle(n.userInfo ?? [:])
     }
@@ -388,14 +447,14 @@ ws.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object:
 ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in tracker.pauseClock(Date()) }
 ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in tracker.resumeClock(Date()) }
 
-// Save the play in progress when launchd stops us (logout / shutdown / unload).
+// Save the play in progress when launchd stops us (logout / shutdown / restart).
 signal(SIGTERM, SIG_IGN)
 signal(SIGINT, SIG_IGN)
 var signalSources: [DispatchSourceSignal] = []
 for sig in [SIGTERM, SIGINT] {
     let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
     src.setEventHandler {
-        tracker.finish(Date())
+        tracker.suspend(Date())
         exit(0)
     }
     src.resume()

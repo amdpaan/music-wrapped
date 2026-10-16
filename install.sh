@@ -87,3 +87,4 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *)
 esac
 echo
 echo "Done. Try: music-wrapped report weekly"
+echo "Back up your plays to a private GitHub repo (optional): music-wrapped backup --setup-github"

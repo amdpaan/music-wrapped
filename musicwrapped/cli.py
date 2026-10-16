@@ -7,7 +7,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import db, library, notify, paths, reports, summary
+from . import backup, db, library, notify, paths, reports, summary
 
 LOGGER = paths.SUPPORT / "bin/music-wrapped-logger"
 LOGGER_LABEL = "com.musicwrapped.logger"
@@ -107,6 +107,9 @@ def cmd_report(a):
         out = reports.save(k2, n2, h2)
         log(f"saved {out}")
     summary.write(con)
+    if kind == "weekly" and a.scheduled:  # weekly backup
+        for line in backup.run():
+            log(line)
     return 0
 
 
@@ -128,6 +131,23 @@ def cmd_open(a):
     if not p:
         print("No report yet. Generate one with: music-wrapped report weekly")
         return 1
+    print(p)
+    open_path(p)
+    return 0
+
+
+def cmd_backup(a):
+    if a.setup_github is not None:
+        name = backup.setup_github(a.setup_github or None)
+        log(f"backups will be pushed to the private repo {name}")
+    for line in backup.run():
+        log(line)
+    return 0
+
+
+def cmd_home(a):
+    reports.write_index()
+    p = paths.REPORTS / "index.html"
     print(p)
     open_path(p)
     return 0
@@ -254,6 +274,14 @@ def main(argv=None):
     s = sub.add_parser("open", help="open the latest report (optionally of one kind)")
     s.add_argument("kind", nargs="?", choices=paths.REPORT_KINDS)
     s.set_defaults(fn=cmd_open)
+
+    s = sub.add_parser("backup", help="back up plays.db (also runs every Sunday with the weekly report)")
+    s.add_argument("--setup-github", nargs="?", const="", metavar="REPO",
+                   help="create/use a PRIVATE GitHub repo for backups (default: <you>/music-wrapped-data)")
+    s.set_defaults(fn=cmd_backup)
+
+    s = sub.add_parser("home", help="open the page listing every report")
+    s.set_defaults(fn=cmd_home)
 
     s = sub.add_parser("summary", help="rewrite summary.json for the widget and print it")
     s.set_defaults(fn=cmd_summary)

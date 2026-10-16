@@ -49,6 +49,8 @@ ol.rank .t b{display:block;font-weight:800;white-space:nowrap;overflow:hidden;te
 ol.rank .t span{display:block;font-size:13px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 ol.rank .v{font-weight:800;font-size:14px;white-space:nowrap;text-align:right}
 ol.rank .v small{display:block;font-weight:600;font-size:11px;opacity:.7}
+ol.rank a{color:inherit;text-decoration:none;display:flex;align-items:center;gap:14px;flex:1;min-width:0;border-radius:10px}
+ol.rank a:hover .t b{text-decoration:underline}
 ol.rank li.first .n{font-size:34px;opacity:1}
 ol.rank li.first .t b{font-size:24px;letter-spacing:-.01em;white-space:normal}
 .empty{font-weight:700;opacity:.7;padding:8px 0}
@@ -156,6 +158,15 @@ def simple_list(items, empty="Nothing here yet."):
         return f'<div class="empty">{e(empty)}</div>'
     lis = "".join(f'<li><span class="t"><b>{e(t)}</b><span>{e(s)}</span></span><span class="v">{e(v)}</span></li>'
                   for t, s, v in items)
+    return f'<ol class="rank">{lis}</ol>'
+
+
+def links(items, empty="None yet."):
+    """items: (href, title, subtitle, value) - a list of report links."""
+    if not items:
+        return f'<div class="empty">{e(empty)}</div>'
+    lis = "".join(f'<li><a href="{e(h)}"><span class="t"><b>{e(t)}</b><span>{e(s)}</span></span>'
+                  f'<span class="v">{e(v)}</span></a></li>' for h, t, s, v in items)
     return f'<ol class="rank">{lis}</ol>'
 
 
