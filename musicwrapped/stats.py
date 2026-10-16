@@ -3,8 +3,9 @@
 from collections import Counter, defaultdict, namedtuple
 from datetime import date, datetime, timedelta
 
-Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source")
-Row = namedtuple("Row", "name sub plays seconds")
+Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid")
+# pid: a track to take the cover from (for artists/albums: their most-played track).
+Row = namedtuple("Row", "name sub plays seconds pid", defaults=(None,))
 
 
 def ts_of(d):
@@ -22,7 +23,8 @@ def plays_between(con, start, end):
     for r in rows:
         secs = r["seconds_listened"] if r["source"] == "mac" else (r["duration"] or r["seconds_listened"])
         out.append(Play(r["ts"], datetime.fromtimestamp(r["ts"]), r["title"], r["artist"] or "Unknown artist",
-                        r["album"] or "", r["duration"] or 0, secs or 0, r["skipped"], r["source"]))
+                        r["album"] or "", r["duration"] or 0, secs or 0, r["skipped"], r["source"],
+                        r["persistent_id"]))
     return out
 
 
@@ -30,38 +32,42 @@ def hours(plays):
     return sum(p.seconds for p in plays) / 3600
 
 
-def _rank(groups, n):
-    rows = sorted(groups.values(), key=lambda r: (-r.plays, -r.seconds, r.name.lower()))
-    return rows[:n]
+def _rank(groups, pids, n):
+    """Top n rows; each gets the pid of its most-played track (for artwork)."""
+    keys = sorted(groups, key=lambda k: (-groups[k].plays, -groups[k].seconds, groups[k].name.lower()))[:n]
+    return [groups[k]._replace(pid=pids[k].most_common(1)[0][0]) if pids[k] else groups[k] for k in keys]
+
+
+def _group(plays, keyfn, rowfn):
+    g, pids = {}, defaultdict(Counter)
+    for p in plays:
+        k = keyfn(p)
+        if k is None:
+            continue
+        r = g.get(k) or rowfn(p)
+        g[k] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds)
+        if p.pid:
+            pids[k][p.pid] += 1
+    return g, pids
 
 
 def top_songs(plays, n):
-    g = {}
-    for p in plays:
-        k = (p.title, p.artist)
-        r = g.get(k) or Row(p.title, p.artist, 0, 0)
-        g[k] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds)
-    return _rank(g, n)
+    g, pids = _group(plays, lambda p: (p.title, p.artist), lambda p: Row(p.title, p.artist, 0, 0))
+    return _rank(g, pids, n)
 
 
 def top_artists(plays, n):
-    g = {}
-    for p in plays:
-        r = g.get(p.artist) or Row(p.artist, "", 0, 0)
-        g[p.artist] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds)
-    return _rank(g, n)
+    g, pids = _group(plays, lambda p: p.artist, lambda p: Row(p.artist, "", 0, 0))
+    return _rank(g, pids, n)
 
 
 def top_albums(plays, n):
-    g, artists = {}, defaultdict(Counter)
+    g, pids = _group(plays, lambda p: p.album or None, lambda p: Row(p.album, "", 0, 0))
+    artists = defaultdict(Counter)
     for p in plays:
-        if not p.album:
-            continue
-        r = g.get(p.album) or Row(p.album, "", 0, 0)
-        g[p.album] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds)
-        artists[p.album][p.artist] += 1
-    rows = _rank(g, n)
-    return [r._replace(sub=artists[r.name].most_common(1)[0][0]) for r in rows]
+        if p.album:
+            artists[p.album][p.artist] += 1
+    return [r._replace(sub=artists[r.name].most_common(1)[0][0]) for r in _rank(g, pids, n)]
 
 
 def on_repeat(plays, min_plays=5):
@@ -151,15 +157,18 @@ def split(plays, buckets):
 
 def library_top(con, kind, n):
     """All-time top songs/artists/albums from library play counts."""
-    base = "FROM library WHERE in_library = 1 AND play_count > 0"
+    base = "FROM library l WHERE in_library = 1 AND play_count > 0"
+    top_pid = ("(SELECT persistent_id FROM library t WHERE t.in_library = 1 AND t.{col} = l.{col} "
+               "ORDER BY t.play_count DESC LIMIT 1)")
     if kind == "songs":
-        q = f"SELECT title, artist, play_count, play_count * COALESCE(duration, 0) {base} ORDER BY 3 DESC, 4 DESC LIMIT ?"
+        q = f"SELECT title, artist, play_count, play_count * COALESCE(duration, 0), persistent_id {base} ORDER BY 3 DESC, 4 DESC LIMIT ?"
     elif kind == "artists":
-        q = f"SELECT artist, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)) {base} AND artist != '' GROUP BY artist ORDER BY 3 DESC, 4 DESC LIMIT ?"
+        q = (f"SELECT artist, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='artist')} "
+             f"{base} AND artist != '' GROUP BY artist ORDER BY 3 DESC, 4 DESC LIMIT ?")
     else:
-        q = (f"SELECT album, MAX(artist), SUM(play_count), SUM(play_count * COALESCE(duration, 0)) {base} AND album != '' "
-             "GROUP BY album ORDER BY 3 DESC, 4 DESC LIMIT ?")
-    return [Row(r[0], r[1], r[2], r[3]) for r in con.execute(q, (n,))]
+        q = (f"SELECT album, MAX(artist), SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='album')} "
+             f"{base} AND album != '' GROUP BY album ORDER BY 3 DESC, 4 DESC LIMIT ?")
+    return [Row(r[0], r[1], r[2], r[3], r[4]) for r in con.execute(q, (n,))]
 
 
 def library_totals(con):

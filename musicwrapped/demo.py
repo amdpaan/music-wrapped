@@ -8,7 +8,7 @@ import random
 import time
 from datetime import datetime, timedelta
 
-from . import db, paths
+from . import artwork, db, paths
 from .library import local_iso
 
 ARTISTS = {
@@ -26,6 +26,7 @@ ARTISTS = {
 
 
 def build():
+    artwork.ENABLED = False  # the demo's tracks aren't in your library; covers show letters
     root = paths.SUPPORT / "demo"
     paths.SUPPORT = root
     paths.DB = root / "plays.db"

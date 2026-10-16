@@ -5,7 +5,7 @@ import re
 import shutil
 from datetime import date, datetime, timedelta
 
-from . import paths, render as R, stats as S
+from . import artwork, paths, render as R, stats as S
 
 ALL_DEVICES = "All devices"
 MAC_ONLY = "Mac only"
@@ -63,7 +63,7 @@ def footer(con, extra=""):
 
 def top_cards(plays, n, theme_songs="green", theme_artists="pink", theme_albums="purple"):
     return (R.card(f"Top {n} songs", R.ranked(S.top_songs(plays, n)), theme_songs, badge=ALL_DEVICES)
-            + R.card(f"Top {n} artists", R.ranked(S.top_artists(plays, n)), theme_artists, badge=ALL_DEVICES)
+            + R.card(f"Top {n} artists", R.ranked(S.top_artists(plays, n), round_=True), theme_artists, badge=ALL_DEVICES)
             + R.card(f"Top {n} albums", R.ranked(S.top_albums(plays, n)), theme_albums, badge=ALL_DEVICES))
 
 
@@ -168,17 +168,18 @@ def yearly(con, y):
             break
         mp = [p for p in plays if S.ts_of(ms) <= p.ts < S.ts_of(me)]
         t = S.top_songs(mp, 1)
-        month_items.append((calendar.month_abbr[m], t[0].name, t[0].sub, t[0].plays) if t
-                           else (calendar.month_abbr[m], None, None, 0))
+        month_items.append((calendar.month_abbr[m], t[0].name, t[0].sub, t[0].plays, t[0].pid) if t
+                           else (calendar.month_abbr[m], None, None, 0, None))
         hh = S.hours(mp)
         month_hours.append((calendar.month_abbr[m], hh, f"{calendar.month_name[m]}: {hh:.1f} h · {R.fmt_plays(len(mp))}"))
 
-    body = (R.card("Your top song", R.headline(top_song[0].name, f"{top_song[0].sub} · {R.fmt_plays(top_song[0].plays)}")
+    body = (R.card("Your top song", R.headline(top_song[0].name, f"{top_song[0].sub} · {R.fmt_plays(top_song[0].plays)}", top_song[0].pid, art=True)
                    if top_song else R.headline("—", "No plays logged yet"), "green", badge=ALL_DEVICES)
             + R.card("Longest streak", R.headline(f"{streak} day" + ("" if streak == 1 else "s"),
                      f"{s_from:%-d %b} – {s_to:%-d %b}" if streak else "No plays logged yet"), "orange",
                      note="Consecutive days with music")
-            + R.card("Biggest new discovery", R.headline(disc[0].name, f"{R.fmt_plays(disc[0].plays)} · {R.fmt_hours(disc[0].seconds / 3600)}")
+            + R.card("Biggest new discovery", R.headline(disc[0].name, f"{R.fmt_plays(disc[0].plays)} · {R.fmt_hours(disc[0].seconds / 3600)}",
+                                         disc[0].pid, round_=True, art=True)
                      if disc else R.headline("—", "No new artists this year"), "pink",
                      note="Most-played artist you hadn't played before this year")
             + top_cards(plays, 10, "teal", "lilac", "purple")
@@ -196,7 +197,7 @@ def alltime(con):
     artists = S.library_top(con, "artists", 25)
     albums = S.library_top(con, "albums", 25)
     body = (R.card("Top 25 songs", R.ranked(songs, "Run a backfill first."), "green")
-            + R.card("Top 25 artists", R.ranked(artists, "Run a backfill first."), "pink")
+            + R.card("Top 25 artists", R.ranked(artists, "Run a backfill first.", round_=True), "pink")
             + R.card("Top 25 albums", R.ranked(albums, "Run a backfill first."), "purple"))
     stats = [("library plays", f"{lib['plays']:,}"),
              ("est. hours (library)", f"{lib['hours']:,.0f}"),
@@ -239,7 +240,7 @@ def save(kind, name, html):
     folder = paths.REPORTS / kind
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{name}.html"
-    out.write_text(html, encoding="utf-8")
+    out.write_text(artwork.inject(html), encoding="utf-8")
     shutil.copyfile(out, folder / "latest.html")
     write_index()
     return out

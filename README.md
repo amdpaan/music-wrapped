@@ -8,7 +8,7 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 - **Imports your whole library** (play counts, last played, durations) for all-time stats.
 - **Picks up iPhone (and other device) plays** from synced play counts, once a day and before every report.
 - **Generates Wrapped pages** (weekly, monthly, yearly, all-time and custom ranges) as single self-contained
-  HTML files, with a clickable macOS notification when a scheduled one is ready.
+  HTML files with your album artwork, with a clickable macOS notification when a scheduled one is ready.
 - **Backs up your play history** every Sunday: dated copies on your Mac, plus an optional private GitHub repo.
 - **Writes `summary.json`** (this week's hours, top artist, top song) for desktop widgets.
 
@@ -122,6 +122,15 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
 Restore from GitHub: `sqlite3 plays.db < plays.sql`. From a local copy, copy it over `plays.db`. Stop the
 logger first in either case: `launchctl bootout gui/$(id -u)/com.musicwrapped.logger`, then re-run `./install.sh`.
 
+## Album artwork
+
+Top songs, artists (round, using their most-played song's cover) and albums show album art, as do the yearly
+top song, biggest discovery and month tiles. Artwork is exported from your Music library once per track,
+shrunk to 160 px and cached in `artwork/`. After that, reports never ask Music again for that track. Each
+image is embedded once per page, so reports stay single files (a full all-time page is about 0.6 MB).
+Songs without artwork, or streamed but not in your library, show their first letter instead. Delete
+`artwork/` to re-export everything.
+
 ## How counting works
 
 - **Restarts**: when the logger is stopped (logout, shutdown, update), the song in progress is saved to
@@ -163,6 +172,7 @@ reports/yearly/       2026.html … latest.html
 reports/alltime/      2026-10-17.html … latest.html
 reports/custom/       2026-09-01_to_2026-12-31_semester-1.html … latest.html
 logs/                 launchd job output
+artwork/              cached album covers (<PID>.jpg; <PID>.none = no artwork, retried after 7 days)
 backups/              weekly copies of plays.db (newest 8)
 backup-repo/          clone of your private GitHub backup repo
 bin/                  the compiled logger

@@ -51,8 +51,23 @@ ol.rank .v{font-weight:800;font-size:14px;white-space:nowrap;text-align:right}
 ol.rank .v small{display:block;font-weight:600;font-size:11px;opacity:.7}
 ol.rank a{color:inherit;text-decoration:none;display:flex;align-items:center;gap:14px;flex:1;min-width:0;border-radius:10px}
 ol.rank a:hover .t b{text-decoration:underline}
+.art{flex:none;width:44px;height:44px;border-radius:6px;background:rgba(0,0,0,.22) center/cover no-repeat;
+  display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.art.round{border-radius:50%}
+li.first .art{width:72px;height:72px;font-size:28px;border-radius:8px}
+li.first .art.round{border-radius:50%}
+.hl{display:flex;gap:18px;align-items:center}
+.hl .art{width:104px;height:104px;font-size:40px;border-radius:10px}
+.hl .art.round{border-radius:50%}
+.hl > div{min-width:0;flex:1}
+.hl .big{font-size:clamp(26px,3vw,40px);overflow-wrap:anywhere;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.month{display:flex;gap:10px;align-items:center}
+.month .art{width:40px;height:40px;font-size:16px}
+.month > div{min-width:0}
 ol.rank li.first .n{font-size:34px;opacity:1}
-ol.rank li.first .t b{font-size:24px;letter-spacing:-.01em;white-space:normal}
+ol.rank li.first .t b{font-size:24px;letter-spacing:-.01em;white-space:normal;line-height:1.15;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
 .empty{font-weight:700;opacity:.7;padding:8px 0}
 .big{font-size:clamp(34px,5vw,54px);font-weight:900;letter-spacing:-.03em;line-height:1}
 .sub{font-weight:700;opacity:.8;margin-top:8px}
@@ -138,15 +153,24 @@ def card(title, inner, theme="dark", note="", badge="", wide=False):
             f"<h2>{e(title)}{pill}</h2>{note_html}{inner}</section>")
 
 
-def ranked(rows, empty="Nothing here yet.", hours=True):
-    """rows: stats.Row(name, sub, plays, seconds)."""
+def cover(pid, name, round_=False):
+    """Artwork slot. artwork.inject() fills `a-<PID>` with the image; otherwise the first letter shows."""
+    cls = "art round" if round_ else "art"
+    if pid:
+        cls += f" a-{pid}"
+    letter = (str(name).strip()[:1] or "♪").upper()
+    return f'<span class="{cls}" aria-hidden="true">{e(letter)}</span>'
+
+
+def ranked(rows, empty="Nothing here yet.", hours=True, round_=False):
+    """rows: stats.Row(name, sub, plays, seconds, pid). round_: circular covers (artists)."""
     if not rows:
         return f'<div class="empty">{e(empty)}</div>'
     items = []
     for i, r in enumerate(rows, 1):
         sub = f"<span>{e(r.sub)}</span>" if r.sub else ""
         small = f"<small>{e(fmt_hours(r.seconds / 3600))}</small>" if hours and r.seconds else ""
-        items.append(f'<li class="{"first" if i == 1 else ""}"><span class="n">{i}</span>'
+        items.append(f'<li class="{"first" if i == 1 else ""}"><span class="n">{i}</span>{cover(r.pid, r.name, round_)}'
                      f'<span class="t"><b>{e(r.name)}</b>{sub}</span>'
                      f'<span class="v">{e(fmt_plays(r.plays))}{small}</span></li>')
     return f'<ol class="rank">{"".join(items)}</ol>'
@@ -235,15 +259,19 @@ def rank_grid(artists, weeks, data):
 
 
 def months(items):
-    """items: (month name, song, artist, plays) or (month name, None, None, 0)."""
+    """items: (month name, song, artist, plays, pid) or (month name, None, None, 0, None)."""
     tiles = []
-    for m, song, artist, n in items:
+    for m, song, artist, n, pid in items:
         if song:
-            tiles.append(f'<div class="month"><small>{e(m)}</small><b>{e(song)}</b><span>{e(artist)} · {e(fmt_plays(n))}</span></div>')
+            tiles.append(f'<div class="month">{cover(pid, song)}<div><small>{e(m)}</small><b>{e(song)}</b>'
+                         f'<span>{e(artist)} · {e(fmt_plays(n))}</span></div></div>')
         else:
-            tiles.append(f'<div class="month"><small>{e(m)}</small><b>—</b><span>No plays logged</span></div>')
+            tiles.append(f'<div class="month"><div><small>{e(m)}</small><b>—</b><span>No plays logged</span></div></div>')
     return f'<div class="months">{"".join(tiles)}</div>'
 
 
-def headline(big, sub=""):
-    return f'<div class="big">{e(big)}</div>' + (f'<div class="sub">{e(sub)}</div>' if sub else "")
+def headline(big, sub="", pid=None, round_=False, art=False):
+    text = f'<div class="big">{e(big)}</div>' + (f'<div class="sub">{e(sub)}</div>' if sub else "")
+    if not art:
+        return text
+    return f'<div class="hl">{cover(pid, big, round_)}<div>{text}</div></div>'

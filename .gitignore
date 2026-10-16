@@ -9,6 +9,7 @@ summary.json
 config.json
 logs/
 backups/
+artwork/
 backup-repo/
 pending.json
 

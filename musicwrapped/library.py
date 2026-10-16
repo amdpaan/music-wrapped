@@ -9,6 +9,7 @@ time (in the backfill or later) only gets a baseline: its existing play count is
 
 import json
 import subprocess
+from contextlib import contextmanager
 import time
 from datetime import datetime
 
@@ -49,13 +50,29 @@ def local_iso(ts):
     return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
 
 
-def fetch_tracks():
-    """Returns every library track. Starts Music hidden if needed and quits it afterwards."""
+@contextmanager
+def music_session():
+    """Starts Music hidden if it isn't running, and quits it afterwards if we started it."""
     launched = False
     if not _music_running():
         subprocess.run(["open", "-g", "-j", "-a", "Music"], check=False)
         launched = True
+        for _ in range(20):  # wait until it answers AppleScript
+            if subprocess.run(["osascript", "-e", 'tell application "Music" to get version'],
+                              capture_output=True).returncode == 0:
+                break
+            time.sleep(1)
     try:
+        yield
+    finally:
+        if launched:
+            subprocess.run(["osascript", "-e", 'tell application "Music" to quit'],
+                           capture_output=True, check=False)
+
+
+def fetch_tracks():
+    """Returns every library track. Starts Music hidden if needed and quits it afterwards."""
+    with music_session():
         last = ""
         for _ in range(20):
             r = subprocess.run(["osascript", "-l", "JavaScript", "-e", JXA],
@@ -69,10 +86,6 @@ def fetch_tracks():
                     "System Settings → Privacy & Security → Automation.")
             time.sleep(1.5)  # Music may still be starting up
         raise MusicError(f"Could not read the Music library: {last}")
-    finally:
-        if launched:
-            subprocess.run(["osascript", "-e", 'tell application "Music" to quit'],
-                           capture_output=True, check=False)
 
 
 def _parse(d):
