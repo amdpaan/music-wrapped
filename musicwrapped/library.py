@@ -3,7 +3,8 @@
 Every snapshot reads play count, last played, date added, title, artist, album and
 duration for every library track, in one bulk call. The first snapshot is the backfill
 (all-time stats only). Later snapshots compare play counts with the previous one: an
-increase that the Mac logger doesn't explain becomes `source = 'other'` plays.
+increase that the Mac logger doesn't explain becomes `source = 'other'` plays. A track seen for the first
+time (in the backfill or later) only gets a baseline: its existing play count is never counted.
 """
 
 import json
@@ -112,15 +113,15 @@ def snapshot(con, kind="manual", tracks=None, now=None):
             seen.add(pid)
             row = known.get(pid)
             if row is None:
-                # New to us. If it was added since the last snapshot, its plays are new plays.
-                delta = t["plays"] if (not first and t["added_ts"] and t["added_ts"] > prev) else 0
+                # New to us: its current play count is only a baseline, never plays for today.
+                # Increases after this are counted; Mac plays already logged stay as they are.
+                delta = 0
                 con.execute(
                     """INSERT INTO library (persistent_id, title, artist, album, duration, play_count,
                        played_ts, added_ts, baseline_play_count, first_seen_ts, updated_ts)
                        VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                     (pid, t["title"], t["artist"], t["album"], t["duration"], t["plays"],
-                     t["played_ts"], t["added_ts"], t["plays"] - delta, now, now))
-                since = t["added_ts"] if delta else None
+                     t["played_ts"], t["added_ts"], t["plays"], now, now))
             else:
                 delta = t["plays"] - row["play_count"]
                 since = prev

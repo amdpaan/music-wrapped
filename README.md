@@ -109,7 +109,9 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
   marked **skipped** if it stopped before 50% of the track. Each play is one row: timestamp, title, artist,
   album, duration, seconds listened, skipped and `source = 'mac'`.
 - **Other devices**: each snapshot compares every track's library play count with the previous snapshot.
-  Music only increments a play count when a song plays to (about) the end, so Mac plays that reached ≥ 90% of
+  A track seen for the first time (in the backfill or any later snapshot, e.g. a song you just added on your
+  iPhone) only gets a **baseline**: its existing play count is never counted as plays; only increases after
+  that are. Music only increments a play count when a song plays to (about) the end, so Mac plays that reached ≥ 90% of
   the track are subtracted, and the rest of the increase becomes `source = 'other'` rows. Their time is the
   track's "last played" date (the exact times of several plays aren't known), and listening time is
   estimated as the track length. Skips can't be known for them.
@@ -118,7 +120,8 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
   so 3 plays one week + 5 the next = 8 in that month. Nothing is counted twice.
 - **Heatmap and skips are Mac only**; top lists, on-repeat, new artists and hours include all devices.
 - **New artists** = no logged plays before the period, no library track by that artist added or played
-  before it, and no plays already in the library when the backfill ran (those can't be dated). So in your
+  before it, and no baseline plays from before the period (plays already in the library at backfill time can't be
+  dated, so they always count as "before"). So in your
   first year, the "biggest new discovery" only considers artists you start listening to after installing.
 
 ## Files

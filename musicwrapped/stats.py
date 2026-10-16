@@ -98,7 +98,10 @@ def known_artists_before(con, start):
         "SELECT DISTINCT artist FROM library WHERE added_ts < ? OR played_ts < ?", (t, t))}
     # Plays already in the library at backfill time can't be dated (and "date added" resets when
     # a song is re-added), so an artist with any of them never counts as new.
-    known |= {r[0] for r in con.execute("SELECT DISTINCT artist FROM library WHERE baseline_play_count > 0")}
+    # Tracks first seen later also get a baseline; those plays came before first_seen_ts.
+    known |= {r[0] for r in con.execute(
+        """SELECT DISTINCT artist FROM library WHERE baseline_play_count > 0 AND (first_seen_ts < ?
+           OR first_seen_ts <= (SELECT MIN(ts) FROM snapshots WHERE kind = 'backfill'))""", (t,))}
     return {(a or "").lower() for a in known}
 
 
