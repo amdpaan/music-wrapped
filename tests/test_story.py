@@ -1,4 +1,4 @@
-"""Story cards build from the demo data (rendering to PNG needs WebKit and isn't run here)."""
+"""Story slides build from the demo data for every period (rendering to PNG needs WebKit and isn't run here)."""
 
 import argparse
 import os
@@ -7,26 +7,38 @@ import unittest
 from datetime import date
 
 
-class StoryCards(unittest.TestCase):
-    def test_cards_for_every_period(self):
+class StorySlides(unittest.TestCase):
+    def test_slides_for_every_period(self):
         os.environ["MUSIC_WRAPPED_HOME"] = tempfile.mkdtemp()
         from musicwrapped import demo, paths, story
         paths.SUPPORT = paths.Path(os.environ["MUSIC_WRAPPED_HOME"])
         con = demo.build()
         a = argparse.Namespace(week=None, month=None, current=True, year=None)
         for kind in ("weekly", "monthly", "yearly", "alltime"):
-            name, label, words, start, end = story.period(kind, a, today=date.today())
-            d = story.collect(con, kind, start, end)
-            self.assertIsNotNone(d, kind)
-            pages = story.cards(d, label, words, "foot")
-            self.assertEqual([p[0] for p in pages], ["01-intro", "02-top-song", "03-top-artist",
-                                                      "04-top-songs", "05-top-genre", "06-summary"])
-            self.assertIn(f"{d['minutes']:,}", pages[0][1])
+            name, sl = story.slides_for(con, kind, a, today=date.today())
+            names = [n for n, _ in sl]
+            self.assertEqual(names[:5], ["intro", "minutes", "top-song", "top-artist", "top-songs"], kind)
+            self.assertEqual(names[-1], "summary", kind)
+            page = story.page(sl[1][1])
+            self.assertIn('class="static"', page)          # animations off for PNGs
+            self.assertIn("data-count", page)               # the minutes number
 
-    def test_big_numbers_fit(self):
-        from musicwrapped import story
-        self.assertLessEqual(story._huge("1,234,567") * 9 * 0.62, 808)
-        self.assertEqual(story._huge("42"), 300)
+    def test_big_numbers_fit_their_column(self):
+        from musicwrapped import slides
+        html = slides._num(1234567, 30, 340)
+        self.assertIn("cqw", html)
+        self.assertIn('data-count="1234567"', html)
+
+    def test_css_braces_balance(self):
+        # An unclosed block once hid every cover in the story images (rules after it only applied
+        # on wide screens), so check that braces never go negative and close at the end.
+        from musicwrapped import render, slides, story
+        for name, css in (("render", render.CSS), ("slides", slides.CSS), ("story", story.BASE_CSS)):
+            depth = 0
+            for ch in css:
+                depth += (ch == "{") - (ch == "}")
+                self.assertGreaterEqual(depth, 0, name)
+            self.assertEqual(depth, 0, name)
 
 
 if __name__ == "__main__":

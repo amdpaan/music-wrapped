@@ -150,13 +150,23 @@ Run it anytime with `music-wrapped health`; `music-wrapped status` shows it too.
 Restore from GitHub: `sqlite3 plays.db < plays.sql`. From a local copy, copy it over `plays.db`. Stop the
 logger first in either case: `launchctl bootout gui/$(id -u)/com.musicwrapped.logger`, then re-run `./install.sh`.
 
+## How a report looks
+
+Every report opens with **Wrapped-style slides**, one big reveal per screen: an intro with a cover mosaic,
+minutes listened (counting up, with a per-day chart), your top song and artist with large covers, top 5
+songs, top genre, then per-report extras (when you listen, your longest streak, your biggest discovery,
+top song of each month, your biggest week/month) and a summary card. Scroll (or use the dots on the right)
+to move between slides; "Skip to details" jumps to **the details**: every list, chart and heatmap in calm
+dark cards. Animations respect macOS's Reduce Motion setting.
+
+`music-wrapped home` opens a page with **this week so far** (covers, minutes, top song/artist/genre) and
+links to every report.
+
 ## Story images
 
-`music-wrapped story` makes six 1080×1920 PNG cards, the size of an Instagram or WhatsApp story, and
-opens the folder:
-
-1. intro with minutes listened, 2. top song (big cover), 3. top artist, 4. top 5 songs,
-5. top genre, 6. a summary card to share.
+`music-wrapped story` renders the same slides as 1080×1920 PNGs, the size of an Instagram or WhatsApp
+story, and opens the folder (intro, minutes, top song, top artist, top songs, top genre, the extras for
+that report, summary).
 
 ```sh
 music-wrapped story                    # this week so far
@@ -255,7 +265,9 @@ demo/                 output of `music-wrapped demo`
 }
 ```
 
-`top_artist` / `top_song` are `null` when nothing has been played this week.
+`top_artist` / `top_song` are `null` when nothing has been played this week. Newer fields:
+`top_genre {name, plays}`, a `pid` on `top_artist` and `top_song` (the cover is
+`artwork/<pid>.jpg`), and `daily_minutes` (7 numbers, Monday first).
 
 ## Fallback: polling
 

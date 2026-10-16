@@ -164,9 +164,14 @@ func writeSummary(_ db: DB) {
         GROUP BY artist ORDER BY n DESC, SUM(\(listened)) DESC LIMIT 1
         """, [start, end]).first
     let song = db.rows("""
-        SELECT title, artist, COUNT(*) n FROM plays WHERE ts >= ? AND ts < ?
+        SELECT title, artist, COUNT(*) n, MAX(persistent_id) FROM plays WHERE ts >= ? AND ts < ?
         GROUP BY title, artist ORDER BY n DESC, SUM(\(listened)) DESC LIMIT 1
         """, [start, end]).first
+    // Minutes per day, Monday first (same as musicwrapped/summary.py).
+    var daily = [Double](repeating: 0, count: 7)
+    for r in db.rows("SELECT (ts - ?) / 86400, SUM(\(listened)) FROM plays WHERE ts >= ? AND ts < ? GROUP BY 1", [start, start, end]) {
+        if let i = Int(r[0]), i >= 0, i < 7 { daily[i] = ((Double(r[1]) ?? 0) / 6).rounded() / 10 }
+    }
     // Genre as reported for the play, else the library track's (same rule as musicwrapped/stats.py).
     // The library table is created by the Python side, so it may not exist yet.
     let hasLibrary = !db.rows("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'library'", []).isEmpty
@@ -190,9 +195,20 @@ func writeSummary(_ db: DB) {
         "top_artist": NSNull(),
         "top_song": NSNull(),
         "top_genre": NSNull(),
+        "daily_minutes": daily,
     ]
-    if let a = artist { obj["top_artist"] = ["name": a[0], "plays": Int(a[1]) ?? 0] }
-    if let s = song { obj["top_song"] = ["title": s[0], "artist": s[1], "plays": Int(s[2]) ?? 0] }
+    if let a = artist {
+        // Cover for the artist: their most-played track this week.
+        let pid = db.rows("""
+            SELECT persistent_id FROM plays WHERE ts >= ? AND ts < ? AND artist = '\(a[0].replacingOccurrences(of: "'", with: "''"))'
+            AND persistent_id IS NOT NULL GROUP BY persistent_id ORDER BY COUNT(*) DESC LIMIT 1
+            """, [start, end]).first?.first
+        obj["top_artist"] = ["name": a[0], "plays": Int(a[1]) ?? 0, "pid": pid.map { $0 as Any } ?? NSNull()]
+    }
+    if let s = song {
+        obj["top_song"] = ["title": s[0], "artist": s[1], "plays": Int(s[2]) ?? 0,
+                           "pid": s[3].isEmpty ? NSNull() as Any : s[3] as Any]
+    }
     if let g = genre { obj["top_genre"] = ["name": g[0], "plays": Int(g[1]) ?? 0] }
     guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return }
     let tmp = summaryPath.appendingPathExtension("tmp")

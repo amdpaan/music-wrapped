@@ -4,6 +4,10 @@ from datetime import datetime
 from html import escape
 
 # Card themes: (background, ink). Bold, saturated, Wrapped-like.
+# Detail cards are dark; each gets one accent (rank numbers, badge, top edge).
+ACCENTS = {"green": "#1ed760", "pink": "#ff4fa3", "purple": "#a07bff", "orange": "#ff8a3d", "blue": "#6b95ff",
+           "yellow": "#f4e04d", "teal": "#19c3b1", "lilac": "#c9b8ff", "red": "#ff5a5a", "dark": "#9a9aa8"}
+
 THEMES = {
     "green": ("#1ed760", "#08130c"),
     "pink": ("#ff4fa3", "#1d0010"),
@@ -40,16 +44,17 @@ main{max-width:1180px;margin:0 auto;position:relative;z-index:1}
 .stat b{display:block;font-size:34px;font-weight:900;letter-spacing:-.02em;line-height:1.05}
 .stat span{font-size:13px;font-weight:600;opacity:.85}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
-.card{border-radius:24px;padding:26px 24px;min-width:0}
+.card{border-radius:24px;padding:26px 24px;min-width:0;background:#14141b;color:var(--ink);
+  border:1px solid rgba(255,255,255,.06);box-shadow:inset 0 3px 0 var(--accent,#9a9aa8)}
 .card.wide{grid-column:1/-1}
 .card h2{font-size:26px;font-weight:900;letter-spacing:-.02em;line-height:1.05;margin-bottom:4px}
 .card .note{font-size:13px;font-weight:600;opacity:.75;margin-bottom:16px}
-.pill{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+.pill{color:var(--accent,inherit);display:inline-block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
   border:1.5px solid currentColor;border-radius:999px;padding:2px 8px;margin-left:8px;vertical-align:middle;opacity:.85}
 ol.rank{list-style:none}
-ol.rank li{display:flex;align-items:center;gap:14px;padding:9px 0;border-top:1px solid rgba(127,127,127,.25)}
+ol.rank li{display:flex;align-items:center;gap:14px;padding:9px 0;border-top:1px solid rgba(255,255,255,.07)}
 ol.rank li:first-child{border-top:0}
-ol.rank .n{font-weight:900;font-size:20px;width:30px;flex:none;opacity:.7}
+ol.rank .n{font-weight:900;font-size:20px;width:30px;flex:none;color:var(--accent,inherit)}
 ol.rank .t{min-width:0;flex:1}
 ol.rank .t b{display:block;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 ol.rank .t span{display:block;font-size:13px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -82,6 +87,21 @@ li.first .art.round{border-radius:50%}
 .genre .v small{display:block;font-weight:600;font-size:11px;color:var(--muted)}
 @media (max-width:560px){.genre{grid-template-columns:22px 36px 1fr auto;gap:10px}.genre .art{width:36px;height:36px}
   .genre .gt{grid-column:3/5;grid-row:2}}
+.feature{grid-column:1/-1;border-radius:28px;padding:30px;background:#14141b;border:1px solid rgba(255,255,255,.06);
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:28px;align-items:center;margin-bottom:4px}
+.feature .strip{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;transform:rotate(-3deg)}
+.feature .strip .art{width:100%;height:auto;aspect-ratio:1;border-radius:12px;font-size:34px}
+.feature .k{font-size:12px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;color:#1ed760}
+.feature .m{font-size:clamp(48px,7vw,88px);font-weight:900;letter-spacing:-.04em;line-height:1;margin:8px 0 2px}
+.feature .u{font-size:20px;font-weight:800;color:var(--muted)}
+.feature dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:18px 0 22px;font-size:15px}
+.feature dt{color:var(--muted);font-weight:700}.feature dd{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btns{display:flex;flex-wrap:wrap;gap:10px}
+.btn{display:inline-block;padding:11px 18px;border-radius:999px;font-weight:800;font-size:15px;text-decoration:none;
+  background:rgba(255,255,255,.08);color:var(--ink);border:1px solid rgba(255,255,255,.1)}
+.btn.main{background:#1ed760;color:#07130b;border-color:#1ed760}
+.btn:hover{filter:brightness(1.15)}
+@media (max-width:760px){.feature{grid-template-columns:1fr}.feature .strip{max-width:380px}}
 ol.rank li.first .n{font-size:34px;opacity:1}
 ol.rank li.first .t b{font-size:24px;letter-spacing:-.01em;white-space:normal;line-height:1.15;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}
@@ -117,7 +137,7 @@ details summary{cursor:pointer;font-weight:700}
 details table{border-collapse:collapse;margin-top:8px;font-size:12px}
 details td,details th{padding:2px 8px;border-bottom:1px solid var(--line);text-align:right}
 .months{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
-.month{background:rgba(0,0,0,.22);border-radius:14px;padding:12px 14px;min-width:0}
+.month{background:rgba(255,255,255,.04);border-radius:14px;padding:12px 14px;min-width:0}
 .month small{font-weight:900;letter-spacing:.1em;text-transform:uppercase;font-size:11px;opacity:.8}
 .month b{display:block;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .month span{display:block;font-size:12px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -153,7 +173,11 @@ LIVE_JS = """<script>
   var KEY = "mw-scroll:" + location.pathname;
   try {
     var y = sessionStorage.getItem(KEY);
-    if (y !== null) { window.scrollTo(0, +y); sessionStorage.removeItem(KEY); }
+    if (y !== null) {
+      document.documentElement.classList.add("static");  // don't replay slide animations
+      window.scrollTo(0, +y);
+      sessionStorage.removeItem(KEY);
+    }
   } catch (e) {}
   setInterval(function () {
     if (document.hidden || document.querySelector("details[open]")) return;
@@ -251,8 +275,13 @@ MASCOT = ('<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg">'
           + "</svg>")
 
 
-def page(title, kicker, heading, range_label, stats, body, footer, live=False):
+def page(title, kicker, heading, range_label, stats, body, footer, live=False, story="", story_css="", story_js=""):
+    """story: slides shown first (full-screen reveals); the report's cards follow as "the details"."""
     tiles = "".join(f'<div class="stat"><b>{e(v)}</b><span>{e(k)}</span></div>' for k, v in stats)
+    if story:
+        heading = "The details"
+        story = (f'<a class="skip" href="#details">Skip to details ↓</a><div class="story">{story}</div>')
+        story_css = "html{scroll-snap-type:y proximity}" + story_css
     if live:
         kicker = f"{kicker} · live"
         footer = f"{footer} This page updates after every play and refreshes itself every minute.".strip()
@@ -261,30 +290,30 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>{e(title)}</title>
-<style>{CSS}</style></head>
-<body><canvas id="bg" aria-hidden="true"></canvas><main>
+<style>{CSS}{story_css}</style></head>
+<body><canvas id="bg" aria-hidden="true"></canvas>{story}<main id="details">
 <div class="hero-wrap"><div class="mascot" aria-hidden="true">{MASCOT}</div>
 <section class="hero"><div class="kicker">{e(kicker)}</div><h1>{e(heading)}</h1>
 <div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section></div>
 <div class="grid">{body}</div>
 <footer>{footer}<br>Generated {e(datetime.now().strftime("%a %-d %b %Y, %H:%M"))} · music-wrapped</footer>
-</main>{BG_JS}{LIVE_JS if live else ""}</body></html>
+</main>{BG_JS}{LIVE_JS if live else ""}{story_js if story else ""}</body></html>
 """
 
 
 def card(title, inner, theme="dark", note="", badge="", wide=False):
-    bg, ink = THEMES[theme]
     pill = f'<span class="pill">{e(badge)}</span>' if badge else ""
     note_html = f'<div class="note">{e(note)}</div>' if note else '<div class="note"></div>'
-    return (f'<section class="card{" wide" if wide else ""}" style="background:{bg};color:{ink}">'
+    return (f'<section class="card{" wide" if wide else ""}" style="--accent:{ACCENTS[theme]}">'
             f"<h2>{e(title)}{pill}</h2>{note_html}{inner}</section>")
 
 
-def cover(pid, name, round_=False):
-    """Artwork slot. artwork.inject() fills `a-<PID>` with the image; otherwise the first letter shows."""
+def cover(pid, name, round_=False, big=False):
+    """Artwork slot. artwork.inject() fills `a-<PID>` (160 px) or `x-<PID>` (640 px, big=True) with the
+    image; otherwise the first letter shows."""
     cls = "art round" if round_ else "art"
     if pid:
-        cls += f" a-{pid}"
+        cls += f" {'x' if big else 'a'}-{pid}"
     letter = (str(name).strip()[:1] or "♪").upper()
     return f'<span class="{cls}" aria-hidden="true">{e(letter)}</span>'
 
@@ -334,6 +363,23 @@ def genre_bars(rows, total, empty="No genre info yet."):
                    f'<div class="gt"><i style="width:{r.plays / top * 100:.1f}%"></i></div>'
                    f'<span class="v">{"&lt;1" if 0 < share < 1 else f"{share:.0f}"}%<small>{e(fmt_plays(r.plays))}</small></span></div>')
     return f'<div class="genres">{"".join(out)}</div>'
+
+
+def feature(d, buttons):
+    """Home page header: this week so far. d: slides.data_for() for the week, or None."""
+    btns = "".join(f'<a class="btn{" main" if i == 0 else ""}" href="{e(h)}">{e(t)}</a>' for i, (h, t) in enumerate(buttons))
+    if not d:
+        return (f'<section class="feature"><div><div class="k">This week so far</div><div class="m">0</div>'
+                f'<div class="u">minutes. Play something on your Mac to start this week.</div></div>'
+                f'<div><div class="btns">{btns}</div></div></section>')
+    strip = "".join(cover(r.pid, r.name) for r in d["mosaic"][:6])
+    song, artist = d["songs"][0], d["artists"][0]
+    genre = d["genres"][0].name if d["genres"] else "—"
+    return (f'<section class="feature"><div class="strip">{strip}</div><div>'
+            f'<div class="k">This week so far</div><div class="m">{d["minutes"]:,}</div><div class="u">minutes listened</div>'
+            f'<dl><dt>Top song</dt><dd>{e(song.name)} · {e(song.sub)}</dd><dt>Top artist</dt><dd>{e(artist.name)}</dd>'
+            f'<dt>Top genre</dt><dd>{e(genre)}</dd><dt>Plays</dt><dd>{d["plays"]:,}</dd></dl>'
+            f'<div class="btns">{btns}</div></div></section>')
 
 
 def _ramp(v, vmax):

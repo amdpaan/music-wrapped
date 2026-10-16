@@ -41,6 +41,8 @@ end run
 """
 
 PID_RE = re.compile(r"\ba-([0-9A-F]{16})\b")
+BIG_RE = re.compile(r"\bx-([0-9A-F]{16})\b")
+BIG = 640  # px, slides and story images
 
 
 def _dir(size=SIZE):
@@ -85,23 +87,24 @@ def fetch(pids, size=SIZE):
                 (_dir(size) / f"{pid}.none").touch()
 
 
-def inject(html, size=SIZE):
-    """Adds cover images for every `a-<PID>` slot in the page."""
+def inject(html):
+    """Adds cover images for every `a-<PID>` (160 px) and `x-<PID>` (640 px) slot in the page."""
     if not ENABLED:
         return html
-    pids = set(PID_RE.findall(html))
-    if not pids:
-        return html
-    try:
-        fetch(pids, size)
-    except (OSError, subprocess.SubprocessError, library.MusicError) as ex:
-        print(f"artwork skipped: {ex}")
     rules = []
-    for pid in sorted(pids):
-        f = _dir(size) / f"{pid}.jpg"
-        if f.exists():
-            b64 = base64.b64encode(f.read_bytes()).decode()
-            rules.append(f".a-{pid}{{background-image:url(data:image/jpeg;base64,{b64});color:transparent}}")
+    for prefix, regex, size in (("a", PID_RE, SIZE), ("x", BIG_RE, BIG)):
+        pids = set(regex.findall(html))
+        if not pids:
+            continue
+        try:
+            fetch(pids, size)
+        except (OSError, subprocess.SubprocessError, library.MusicError) as ex:
+            print(f"artwork skipped: {ex}")
+        for pid in sorted(pids):
+            f = _dir(size) / f"{pid}.jpg"
+            if f.exists():
+                b64 = base64.b64encode(f.read_bytes()).decode()
+                rules.append(f".art.{prefix}-{pid}{{background-image:url(data:image/jpeg;base64,{b64});color:transparent}}")
     if not rules:
         return html
     return html.replace("</style>", "\n" + "\n".join(rules) + "\n</style>", 1)

@@ -22,8 +22,10 @@ def build(con, today=None):
         "week_start": start.isoformat(),
         "hours": round(S.hours(plays), 1),
         "plays": len(plays),
-        "top_artist": {"name": artist[0].name, "plays": artist[0].plays} if artist else None,
-        "top_song": {"title": song[0].name, "artist": song[0].sub, "plays": song[0].plays} if song else None,
+        "top_artist": {"name": artist[0].name, "plays": artist[0].plays, "pid": artist[0].pid} if artist else None,
+        "top_song": {"title": song[0].name, "artist": song[0].sub, "plays": song[0].plays, "pid": song[0].pid} if song else None,
+        # Minutes per day, Monday first (7 values), for the widget's little chart.
+        "daily_minutes": [round(sum(p.seconds for p in plays if p.dt.weekday() == i) / 60, 1) for i in range(7)],
         "top_genre": {"name": genre[0].name, "plays": genre[0].plays} if genre else None,
     }
 
