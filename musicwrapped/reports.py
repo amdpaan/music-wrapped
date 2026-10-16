@@ -69,7 +69,8 @@ def top_cards(plays, n, theme_songs="green", theme_artists="pink", theme_albums=
 
 def hero_stats(plays, compare=None):
     mac, other = device_split(plays)
-    st = [("hours listened", f"{S.hours(plays):,.1f}"),
+    h = S.hours(plays)
+    st = [("hours listened", f"{h:,.1f}") if h >= 1 else ("listened", R.fmt_hours(h)),
           ("plays", f"{len(plays):,}"),
           ("artists", f"{len({p.artist for p in plays}):,}")]
     if compare:
@@ -128,7 +129,7 @@ def weekly(con, week_start):
 
 def _pct(h, ph):
     if ph <= 0:
-        return "–" if h <= 0 else "new"
+        return "–"
     pct = (h - ph) / ph * 100
     return f"{'+' if pct >= 0 else ''}{pct:.0f}%"
 

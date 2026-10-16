@@ -325,6 +325,7 @@ let dnc = DistributedNotificationCenter.default()
 
 if args.count >= 2, args[1] == "--probe" {
     let secs = args.count >= 3 ? Double(args[2]) ?? 60 : 60
+    setvbuf(stdout, nil, _IOLBF, 0)  // print events live, even when piped
     var count = 0
     print("Listening for com.apple.Music.playerInfo for \(Int(secs)) s. Play, pause or skip a song in Music now…")
     dnc.addObserver(forName: Notification.Name("com.apple.Music.playerInfo"), object: nil, queue: .main) { n in

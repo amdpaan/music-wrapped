@@ -117,8 +117,9 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
 - **Date-range** reports (weekly, monthly, yearly, custom) add up the logged rows in that range,
   so 3 plays one week + 5 the next = 8 in that month. Nothing is counted twice.
 - **Heatmap and skips are Mac only**; top lists, on-repeat, new artists and hours include all devices.
-- **New artists** = no logged plays before the period, and no library track by that artist added or played
-  before it.
+- **New artists** = no logged plays before the period, no library track by that artist added or played
+  before it, and no plays already in the library when the backfill ran (those can't be dated). So in your
+  first year, the "biggest new discovery" only considers artists you start listening to after installing.
 
 ## Files
 
