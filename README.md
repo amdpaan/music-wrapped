@@ -29,15 +29,17 @@ cd music-wrapped
 
 The installer:
 
-1. Builds the logger (`logger/main.swift`) into `$HOME/Library/Application Support/music-wrapped/bin/`.
+1. Builds the logger (`logger/main.swift`) into `$HOME/Library/Application Support/music-wrapped/bin/` and signs it
+   with a local certificate (see below).
 2. Installs `terminal-notifier` with Homebrew, if it's missing.
 3. Links the `music-wrapped` command into `$HOME/.local/bin`.
-4. Installs five launchd agents in `$HOME/Library/LaunchAgents`:
+4. Installs six launchd agents in `$HOME/Library/LaunchAgents`:
 
    | Agent | When | What |
    |---|---|---|
    | `com.musicwrapped.logger` | at login, kept alive | logs Mac plays |
-   | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (other-device plays) + health check |
+   | `com.musicwrapped.hourly` | every hour, only while Music is open | quick snapshot, so iPhone plays show up within an hour (never launches Music) |
+   | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (launches Music hidden if needed) + health check |
    | `com.musicwrapped.weekly` | Monday 00:05 | last week's report + all-time refresh + backup |
    | `com.musicwrapped.monthly` | 1st of the month, 09:00 | last month's report |
    | `com.musicwrapped.yearly` | 1 December, 09:05 | Jan–Nov Wrapped |
@@ -45,7 +47,13 @@ The installer:
    If the Mac is asleep at a scheduled time, launchd runs the job when it wakes up.
 5. Runs the **backfill** (first library snapshot).
 
-To uninstall: `./uninstall.sh` (keeps your data) or `./uninstall.sh --purge`.
+To uninstall: `./uninstall.sh` (keeps your data) or `./uninstall.sh --purge` (also deletes the data and the signing certificate).
+
+**Signing.** macOS remembers Automation approvals per app identity. A plain (ad-hoc) build gets a new identity
+every time it's rebuilt, so macOS would ask again after each update. `tools/sign-logger.sh` creates a
+self-signed certificate, "music-wrapped logger (local)", in your login keychain once, and signs the logger with
+it, so the approval sticks. The certificate is only used on your Mac. If signing fails, the installer
+falls back to the plain signature.
 
 ## Permission prompts to expect
 
@@ -55,7 +63,7 @@ To uninstall: `./uninstall.sh` (keeps your data) or `./uninstall.sh --purge`.
 | **"sh" / "python3" / "osascript" wants access to control "Music"** (wording varies) | the same library read, when launchd runs the daily snapshot. The installer runs that job once so this prompt shows up during install | Yes |
 | **"Background Items Added"** notification (one per agent, shown as "sh" or "music-wrapped-logger") | macOS tells you about new login/background items | Leave them enabled in System Settings → General → Login Items & Extensions |
 | **"terminal-notifier" would like to send notifications** | shows up with the first report notification | Allow |
-| **"music-wrapped-logger" wants access to control "Music"** | when the logger starts while Music is open, it asks once what's playing (see below). Poll mode uses it every 30 s | Yes |
+| **"music-wrapped-logger" wants access to control "Music"** | when the logger starts while Music is open, it asks once what's playing (see below). Poll mode uses it every 30 s. Thanks to signing, you approve it once and it's kept across updates | Yes |
 
 Tracking itself needs no permission: the logger only listens to notifications that Music broadcasts.
 The one AppleScript call at startup only catches a song that was already playing. If you deny it, everything
@@ -90,8 +98,8 @@ music-wrapped demo                         # preview every report with fake data
 
 **This week's report is live.** After every logged play, the logger rebuilds `weekly/latest.html` in the
 background (about 0.05 s, no library snapshot, never starts Music), and an open tab of a week in progress
-reloads itself every minute, keeping your scroll position. Plays from other devices still arrive with the
-daily snapshot. Other reports are fixed snapshots: re-run the command to update them.
+reloads itself every minute, keeping your scroll position. Plays from other devices arrive with the
+hourly snapshot (while Music is open) or the daily one. Other reports are fixed snapshots: re-run the command to update them.
 
 Every report command takes a library snapshot first (skip it with `--no-snapshot`) and opens the result
 in your browser (skip with `--no-open`). Scheduled runs only send a notification; clicking it opens the report.
@@ -118,7 +126,7 @@ your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snap
 ## Health check
 
 Every day, with the snapshot, music-wrapped checks that:
-- all 5 jobs are loaded and the logger is running
+- all 6 jobs are loaded and the logger is running
 - the logger hasn't logged errors in the last 24 h
 - a snapshot has succeeded in the last 2 days (if not, the "control Music" permission was probably revoked)
 - if Music has played on this Mac in the last 3 days, plays are being logged (the logger records when it last saw

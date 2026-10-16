@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from . import paths
 
-AGENTS = ("logger", "snapshot", "weekly", "monthly", "yearly")
+AGENTS = ("logger", "hourly", "snapshot", "weekly", "monthly", "yearly")
 DAY = 86400
 
 
@@ -54,7 +54,7 @@ def check(con, now=None):
     states = {a: _launchd(a) for a in AGENTS}
     missing = [a for a, s in states.items() if s is None]
     res.append((not missing, "Scheduled jobs",
-                "all 5 loaded" if not missing else f"not loaded: {', '.join(missing)}. Re-run ./install.sh"))
+                f"all {len(AGENTS)} loaded" if not missing else f"not loaded: {', '.join(missing)}. Re-run ./install.sh"))
     if states["logger"] is not None:
         res.append((states["logger"] == "running", "Logger",
                     "running" if states["logger"] == "running" else "loaded but not running. Re-run ./install.sh"))

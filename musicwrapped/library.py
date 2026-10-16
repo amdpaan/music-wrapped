@@ -41,7 +41,7 @@ class MusicError(RuntimeError):
     pass
 
 
-def _music_running():
+def music_running():
     return subprocess.run(["pgrep", "-xq", "Music"]).returncode == 0
 
 
@@ -59,7 +59,7 @@ def local_iso(ts):
 def music_session():
     """Starts Music hidden if it isn't running, and quits it afterwards if we started it."""
     launched = False
-    if not _music_running():
+    if not music_running():
         subprocess.run(["open", "-g", "-j", "-a", "Music"], check=False)
         launched = True
         for _ in range(20):  # wait until it answers AppleScript

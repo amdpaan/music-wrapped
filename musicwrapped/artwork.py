@@ -64,7 +64,7 @@ def _missing(pids):
 def fetch(pids):
     """Exports artwork for tracks not cached yet. Starts Music hidden if needed."""
     todo = _missing(sorted(set(pids)))
-    if not todo or (not ALLOW_LAUNCH and not library._music_running()):
+    if not todo or (not ALLOW_LAUNCH and not library.music_running()):
         return
     with tempfile.TemporaryDirectory() as tmp, library.music_session():
         raw = {pid: Path(tmp) / f"{pid}.raw" for pid in todo}

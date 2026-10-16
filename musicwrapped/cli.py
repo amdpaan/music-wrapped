@@ -36,6 +36,18 @@ def open_path(p):
 # ---------- commands ----------
 
 def cmd_snapshot(a):
+    if a.kind == "hourly":
+        # Only while Music is already open: never launches it. Quiet when there's nothing to do.
+        if not library.music_running():
+            return 0
+        r = take_snapshot("hourly")
+        con = db.connect()
+        if r:
+            summary.write(con)
+            if r["other_plays"]:  # new iPhone plays: refresh this week's live report too
+                kind, name, html = reports.weekly(con, date.today())
+                reports.save(kind, name, html)
+        return 0 if r else 1
     r = take_snapshot(a.kind)
     con = db.connect()
     if r:
@@ -195,7 +207,7 @@ def cmd_status(a):
     cfg = _config()
     print(f"Logger mode:     {cfg.get('mode', 'notifications')}")
     r = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
-    for label in ("logger", "snapshot", "weekly", "monthly", "yearly"):
+    for label in health.AGENTS:
         print(f"launchd {label + ':':9} {'loaded' if f'com.musicwrapped.{label}' in r else 'NOT loaded'}")
     for k in paths.REPORT_KINDS:
         p = reports.latest(k)
@@ -277,7 +289,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_backfill)
 
     s = sub.add_parser("snapshot", help="snapshot library play counts (finds plays from other devices)")
-    s.add_argument("--kind", default="manual", choices=["manual", "daily", "report"])
+    s.add_argument("--kind", default="manual", choices=["manual", "daily", "hourly", "report"])
     s.set_defaults(fn=cmd_snapshot)
 
     s = sub.add_parser("report", help="generate a weekly / monthly / yearly / alltime report")
