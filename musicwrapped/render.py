@@ -22,7 +22,13 @@ CSS = """
 :root{color-scheme:dark;--bg:#09090d;--ink:#f4f4f6;--muted:#9a9aa8;--line:#2a2a35;--cell:#23232d}
 body{background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Arial,sans-serif;
   -webkit-font-smoothing:antialiased;padding:32px 16px 64px}
-main{max-width:1180px;margin:0 auto}
+main{max-width:1180px;margin:0 auto;position:relative;z-index:1}
+#bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.hero-wrap{position:relative;margin-top:40px}
+.mascot{position:absolute;right:56px;top:-48px;width:80px;height:50px;z-index:2;animation:bob 3.2s ease-in-out infinite}
+.mascot svg{display:block;width:100%;height:100%;shape-rendering:crispEdges;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45))}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@media (prefers-reduced-motion:reduce){.mascot{animation:none}}
 .hero{border-radius:28px;padding:44px 36px;margin-bottom:20px;color:#fff;position:relative;overflow:hidden;
   background:radial-gradient(120% 140% at 0% 0%,#ff4fa3 0%,transparent 55%),radial-gradient(120% 140% at 100% 100%,#1ed760 0%,transparent 50%),
   linear-gradient(135deg,#5b21d6,#2f6bff)}
@@ -104,9 +110,10 @@ details td,details th{padding:2px 8px;border-bottom:1px solid var(--line);text-a
 .month small{font-weight:900;letter-spacing:.1em;text-transform:uppercase;font-size:11px;opacity:.8}
 .month b{display:block;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
 .month span{display:block;font-size:12px;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-footer{margin-top:28px;color:var(--muted);font-size:13px;line-height:1.6}
+footer{margin-top:28px;color:var(--muted);font-size:13px;line-height:1.6;background:rgba(9,9,13,.82);
+  border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px 18px}
 footer b{color:var(--ink)}
-@media (max-width:560px){.hero{padding:32px 22px}.card{padding:22px 18px}.heat{grid-template-columns:30px repeat(24,minmax(0,1fr));gap:2px}
+@media (max-width:560px){.mascot{right:28px;top:-38px;width:64px;height:40px}.hero{padding:32px 22px}.card{padding:22px 18px}.heat{grid-template-columns:30px repeat(24,minmax(0,1fr));gap:2px}
   .heat .hl{font-size:9px}}
 """
 
@@ -146,6 +153,93 @@ LIVE_JS = """<script>
 </script>"""
 
 
+# Textured background: a faint field of monospace characters tracing a vinyl record
+# (grooves, label, sheen) with a few brighter runs. Seeded, so it looks the same on every
+# reload; a few characters change slowly (paused when hidden or with Reduce Motion).
+BG_JS = """<script>
+(function () {
+  var c = document.getElementById("bg");
+  if (!c || !c.getContext) return;
+  var ctx = c.getContext("2d");
+  var CH = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  var COLORS = ["208,212,226", "30,215,96", "122,162,255", "30,215,96"];
+  var BG = "#09090d", FS = 12, LH = 17, CW = 7, cols = 0, rows = 0, alpha, tint, chars, seed;
+  function rnd() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
+  function draw(i, clear) {
+    var x = (i % cols) * CW, y = Math.floor(i / cols) * LH;
+    if (clear) { ctx.fillStyle = BG; ctx.fillRect(x, y, CW, LH); }
+    if (alpha[i] <= 0) return;
+    ctx.fillStyle = "rgba(" + COLORS[tint[i]] + "," + alpha[i].toFixed(3) + ")";
+    ctx.fillText(chars[i], x, y + 2);
+  }
+  function layout() {
+    var dpr = window.devicePixelRatio || 1, W = window.innerWidth, H = window.innerHeight;
+    c.width = Math.round(W * dpr); c.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = FS + "px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.textBaseline = "top";
+    CW = ctx.measureText("M").width;
+    cols = Math.ceil(W / CW); rows = Math.ceil(H / LH);
+    alpha = new Float32Array(cols * rows); tint = new Uint8Array(cols * rows); chars = new Array(cols * rows);
+    seed = 20261017;
+    // A record sliding out of its sleeve: off to the right, so the grooves show beside the content.
+    var R = Math.max(Math.min(W, H) * 0.62, 260), cx = W - R * 0.42, cy = H * 0.42;
+    for (var y = 0; y < rows; y++) {
+      var run = 0, runTint = 2;
+      for (var x = 0; x < cols; x++) {
+        var i = y * cols + x, dx = x * CW + CW / 2 - cx, dy = y * LH + LH / 2 - cy;
+        var d = Math.sqrt(dx * dx + dy * dy) / R, a = 0.035 + rnd() * 0.035;
+        if (d < 1) {
+          a = 0.06 + 0.08 * (0.5 + 0.5 * Math.sin(d * 72));
+          var sheen = Math.max(0, Math.cos(2 * (Math.atan2(dy, dx) + 0.75)));
+          if (d > 0.32) a += 0.11 * Math.pow(sheen, 8);
+          if (d > 0.965) a = 0.2;
+          if (d < 0.3) { a = 0.17 + 0.05 * rnd(); tint[i] = 1; }
+          if (d < 0.05) a = 0;
+        }
+        if (run > 0) { run--; a = Math.max(a, 0.34 + 0.12 * rnd()); tint[i] = runTint; }
+        else if (rnd() < 0.003) { run = 4 + Math.floor(rnd() * 24); runTint = rnd() < 0.6 ? 2 : 3; }
+        alpha[i] = a;
+        chars[i] = CH[Math.floor(rnd() * CH.length)];
+      }
+    }
+    ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+    for (var j = 0; j < alpha.length; j++) draw(j, false);
+  }
+  layout();
+  var t;
+  window.addEventListener("resize", function () { clearTimeout(t); t = setTimeout(layout, 150); });
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduce) setInterval(function () {
+    if (document.hidden) return;
+    for (var k = 0; k < 36; k++) {
+      var i = Math.floor(Math.random() * alpha.length);
+      if (alpha[i] > 0.05) { chars[i] = CH[Math.floor(Math.random() * CH.length)]; draw(i, true); }
+    }
+  }, 140);
+})();
+</script>"""
+
+# The site's own mascot: a pixel cassette tape with reel eyes (original artwork for this project).
+_MASCOT_PIXELS = [
+    "..GGGGGGGGGGGG..",
+    ".GLLLLLLLLLLLLG.",
+    ".GLDDDLLLLDDDLG.",
+    ".GLDWDLLLLDWDLG.",
+    ".GLDDDLLLLDDDLG.",
+    ".GLLLLLDDLLLLLG.",
+    ".GGGGGGGGGGGGGG.",
+    ".GGKGGGGGGGGKGG.",
+    "..GGGGGGGGGGGG..",
+    "...K.K....K.K...",
+]
+_MASCOT_COLORS = {"G": "#1ed760", "L": "#c9f7da", "D": "#0b2e19", "W": "#ffffff", "K": "#0b2e19"}
+MASCOT = ('<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg">'
+          + "".join(f'<rect x="{x}" y="{y}" width="1" height="1" fill="{_MASCOT_COLORS[ch]}"/>'
+                    for y, row in enumerate(_MASCOT_PIXELS) for x, ch in enumerate(row) if ch != ".")
+          + "</svg>")
+
+
 def page(title, kicker, heading, range_label, stats, body, footer, live=False):
     tiles = "".join(f'<div class="stat"><b>{e(v)}</b><span>{e(k)}</span></div>' for k, v in stats)
     if live:
@@ -157,12 +251,13 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False):
 <meta name="color-scheme" content="dark">
 <title>{e(title)}</title>
 <style>{CSS}</style></head>
-<body><main>
+<body><canvas id="bg" aria-hidden="true"></canvas><main>
+<div class="hero-wrap"><div class="mascot" aria-hidden="true">{MASCOT}</div>
 <section class="hero"><div class="kicker">{e(kicker)}</div><h1>{e(heading)}</h1>
-<div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section>
+<div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section></div>
 <div class="grid">{body}</div>
 <footer>{footer}<br>Generated {e(datetime.now().strftime("%a %-d %b %Y, %H:%M"))} · music-wrapped</footer>
-</main>{LIVE_JS if live else ""}</body></html>
+</main>{BG_JS}{LIVE_JS if live else ""}</body></html>
 """
 
 
