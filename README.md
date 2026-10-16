@@ -87,6 +87,11 @@ music-wrapped doctor                       # check that Music's notifications ar
 music-wrapped demo                         # preview every report with fake data
 ```
 
+**This week's report is live.** After every logged play, the logger rebuilds `weekly/latest.html` in the
+background (about 0.05 s, no library snapshot, never starts Music), and an open tab of a week in progress
+reloads itself every minute, keeping your scroll position. Plays from other devices still arrive with the
+daily snapshot. Other reports are fixed snapshots: re-run the command to update them.
+
 Every report command takes a library snapshot first (skip it with `--no-snapshot`) and opens the result
 in your browser (skip with `--no-open`). Scheduled runs only send a notification; clicking it opens the report.
 

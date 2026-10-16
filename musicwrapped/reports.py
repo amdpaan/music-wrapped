@@ -123,7 +123,7 @@ def weekly(con, week_start):
     stats = hero_stats(plays, ("vs last week", _pct(h, ph)))
     html = R.page(f"Wrapped {name}", f"Your week in music · {name}", "Your Week, Wrapped",
                   fmt_range(start, end), stats, body,
-                  footer(con, f"Last week: <b>{R.fmt_hours(ph)}</b>."))
+                  footer(con, f"Last week: <b>{R.fmt_hours(ph)}</b>."), live=date.today() < end)
     return "weekly", name, html
 
 

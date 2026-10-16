@@ -14,6 +14,7 @@ from pathlib import Path
 from . import library, paths
 
 ENABLED = True          # demo.py turns this off (its tracks aren't in your library)
+ALLOW_LAUNCH = True     # live rebuilds never start Music; missing covers are fetched next time
 SIZE = 160              # px, about 2x the largest cover shown
 RETRY_DAYS = 7          # how long to remember "this track has no artwork"
 
@@ -63,7 +64,7 @@ def _missing(pids):
 def fetch(pids):
     """Exports artwork for tracks not cached yet. Starts Music hidden if needed."""
     todo = _missing(sorted(set(pids)))
-    if not todo:
+    if not todo or (not ALLOW_LAUNCH and not library._music_running()):
         return
     with tempfile.TemporaryDirectory() as tmp, library.music_session():
         raw = {pid: Path(tmp) / f"{pid}.raw" for pid in todo}

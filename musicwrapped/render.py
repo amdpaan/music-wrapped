@@ -128,8 +128,29 @@ def fmt_plays(n):
     return f"{n:,} play" + ("" if n == 1 else "s")
 
 
-def page(title, kicker, heading, range_label, stats, body, footer):
+# Reloads the page every minute while it's visible, keeping the scroll position. Used for a
+# week in progress, whose file the logger rebuilds after every play.
+LIVE_JS = """<script>
+(function () {
+  var KEY = "mw-scroll:" + location.pathname;
+  try {
+    var y = sessionStorage.getItem(KEY);
+    if (y !== null) { window.scrollTo(0, +y); sessionStorage.removeItem(KEY); }
+  } catch (e) {}
+  setInterval(function () {
+    if (document.hidden || document.querySelector("details[open]")) return;
+    try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
+    location.reload();
+  }, 60000);
+})();
+</script>"""
+
+
+def page(title, kicker, heading, range_label, stats, body, footer, live=False):
     tiles = "".join(f'<div class="stat"><b>{e(v)}</b><span>{e(k)}</span></div>' for k, v in stats)
+    if live:
+        kicker = f"{kicker} · live"
+        footer = f"{footer} This page updates after every play and refreshes itself every minute.".strip()
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -141,7 +162,7 @@ def page(title, kicker, heading, range_label, stats, body, footer):
 <div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section>
 <div class="grid">{body}</div>
 <footer>{footer}<br>Generated {e(datetime.now().strftime("%a %-d %b %Y, %H:%M"))} · music-wrapped</footer>
-</main></body></html>
+</main>{LIVE_JS if live else ""}</body></html>
 """
 
 

@@ -58,15 +58,23 @@ plist() {
   <key>StandardErrorPath</key><string>$LOGS/${label#com.musicwrapped.}.log</string>
 </dict></plist>
 PLIST
+  # bootout returns before the old job has fully stopped; wait, then retry bootstrap.
   launchctl bootout "gui/$UID_/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist"
+  i=0
+  while launchctl print "gui/$UID_/$label" >/dev/null 2>&1 && [ $i -lt 20 ]; do sleep 0.5; i=$((i + 1)); done
+  i=0
+  until launchctl bootstrap "gui/$UID_" "$AGENTS/$label.plist" 2>/dev/null; do
+    i=$((i + 1))
+    [ $i -ge 5 ] && { echo "Could not load $label. Try: launchctl bootstrap gui/$UID_ \"$AGENTS/$label.plist\""; exit 1; }
+    sleep 1
+  done
 }
 
 cal() { printf '<key>StartCalendarInterval</key><dict>%s</dict>' "$1"; }
 k() { printf '<key>%s</key><integer>%s</integer>' "$1" "$2"; }
 
 say "Installing launchd agents"
-plist com.musicwrapped.logger   true  ""                                              "$SUPPORT/bin/music-wrapped-logger"
+plist com.musicwrapped.logger   true  ""                                              "$SUPPORT/bin/music-wrapped-logger" --refresh-cmd "$CLI"
 plist com.musicwrapped.snapshot false "$(cal "$(k Hour 12)$(k Minute 0)")"            "$CLI" snapshot --kind daily
 plist com.musicwrapped.weekly   false "$(cal "$(k Weekday 0)$(k Hour 22)$(k Minute 0)")" "$CLI" report weekly --scheduled
 plist com.musicwrapped.monthly  false "$(cal "$(k Day 1)$(k Hour 9)$(k Minute 0)")"    "$CLI" report monthly --scheduled

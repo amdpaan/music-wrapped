@@ -95,6 +95,10 @@ def finish(con, kind, name, html, a, label):
 
 
 def cmd_report(a):
+    if a.live:  # quick rebuild by the logger after each play
+        a.no_snapshot = a.no_open = True
+        from . import artwork
+        artwork.ALLOW_LAUNCH = False
     if not a.no_snapshot:
         take_snapshot("report")
     con = db.connect()
@@ -102,7 +106,7 @@ def cmd_report(a):
     label = {"weekly": f"weekly Wrapped ({name})", "monthly": f"monthly Wrapped ({name})",
              "yearly": f"{name} Wrapped", "alltime": "all-time Wrapped"}[kind]
     finish(con, kind, name, html, a, label)
-    if kind == "weekly":  # all-time is refreshed with every weekly report
+    if kind == "weekly" and not a.live:  # all-time is refreshed with every weekly report
         k2, n2, h2 = reports.alltime(con)
         out = reports.save(k2, n2, h2)
         log(f"saved {out}")
@@ -259,6 +263,7 @@ def main(argv=None):
     s.add_argument("--current", action="store_true", help="monthly: this month so far")
     s.add_argument("--year", type=int, help="yearly: year (default: this year, Jan–Nov)")
     s.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
+    s.add_argument("--live", action="store_true", help=argparse.SUPPRESS)
     s.add_argument("--no-open", action="store_true", help="don't open the browser")
     s.add_argument("--no-snapshot", action="store_true", help="skip the library snapshot first")
     s.set_defaults(fn=cmd_report)

@@ -10,6 +10,8 @@
 // Usage:
 //   music-wrapped-logger              run (launchd starts it at login)
 //   music-wrapped-logger --probe 60   print playerInfo notifications for 60 s, then exit
+//   music-wrapped-logger --refresh-cmd <path to music-wrapped>
+//                                     also rebuild the weekly report after every logged play
 //
 // When launchd stops the logger, the song in progress is saved to pending.json rather than
 // logged. On start, the logger asks Music once (AppleScript) what's playing: if it's the same
@@ -180,6 +182,46 @@ func writeSummary(_ db: DB) {
     }
 }
 
+// MARK: - Live weekly report
+
+/// Runs `music-wrapped report weekly --live` after each logged play, one run at a time.
+/// Plays logged while it runs are folded into a single follow-up run.
+final class Refresher {
+    let cmd: String?
+    var running: Process?
+    var again = false
+
+    init(cmd: String?) { self.cmd = cmd }
+
+    func trigger() {
+        guard let cmd = cmd else { return }
+        if running != nil {
+            again = true
+            return
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: cmd)
+        p.arguments = ["report", "weekly", "--live"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.standardError  // errors land in logger.log
+        p.terminationHandler = { _ in
+            DispatchQueue.main.async {
+                self.running = nil
+                if self.again {
+                    self.again = false
+                    self.trigger()
+                }
+            }
+        }
+        do {
+            try p.run()
+            running = p
+        } catch {
+            log("could not refresh the weekly report: \(error)")
+        }
+    }
+}
+
 // MARK: - Play tracking
 
 struct Play: Codable {
@@ -206,10 +248,14 @@ struct Pending: Codable {
 
 final class Tracker {
     let db: DB
+    let refresher: Refresher
     var current: Play?
     var wasPlayingBeforeSleep = false
 
-    init(db: DB) { self.db = db }
+    init(db: DB, refresher: Refresher) {
+        self.db = db
+        self.refresher = refresher
+    }
 
     /// Handles one playerInfo payload (from a notification, or synthesized by poll mode).
     func handle(_ info: [AnyHashable: Any]) {
@@ -280,6 +326,7 @@ final class Tracker {
         guard listened >= minSeconds else { return }
         db.insertPlay(p, listened: listened, ended: now)
         writeSummary(db)
+        refresher.trigger()
         log("play: \(p.artist) – \(p.title) (\(Int(listened))s)")
     }
 
@@ -404,8 +451,9 @@ let mode: String = {
     return o["mode"] as? String ?? "notifications"
 }()
 
+let refreshCmd: String? = args.firstIndex(of: "--refresh-cmd").flatMap { i in i + 1 < args.count ? args[i + 1] : nil }
 let db = DB()
-let tracker = Tracker(db: db)
+let tracker = Tracker(db: db, refresher: Refresher(cmd: refreshCmd))
 let ws = NSWorkspace.shared.notificationCenter
 var pollTimer: Timer?
 
