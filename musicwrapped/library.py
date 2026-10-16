@@ -1,0 +1,177 @@
+"""Library snapshots via AppleScript (JXA): the backfill and the iPhone/other-device plays.
+
+Every snapshot reads play count, last played, date added, title, artist, album and
+duration for every library track, in one bulk call. The first snapshot is the backfill
+(all-time stats only). Later snapshots compare play counts with the previous one: an
+increase that the Mac logger doesn't explain becomes `source = 'other'` plays.
+"""
+
+import json
+import subprocess
+import time
+from datetime import datetime
+
+from . import db
+
+JXA = r"""
+const m = Application("Music");
+const t = m.libraryPlaylists[0].tracks;
+const iso = d => (d ? d.toISOString() : null);
+JSON.stringify({
+  pid: t.persistentID(), title: t.name(), artist: t.artist(), album: t.album(),
+  duration: t.duration(), plays: t.playedCount(),
+  played: t.playedDate().map(iso), added: t.dateAdded().map(iso),
+});
+"""
+
+# Music bumps a track's play count only when it plays to (about) the end. A Mac play
+# that stopped earlier is logged by us but isn't in the library count, so only Mac plays
+# that reached this fraction of the track are subtracted from a play-count increase.
+COMPLETED_FRACTION = 0.9
+
+
+class MusicError(RuntimeError):
+    pass
+
+
+def _music_running():
+    return subprocess.run(["pgrep", "-xq", "Music"]).returncode == 0
+
+
+def _iso_to_ts(s):
+    if not s:
+        return None
+    return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+
+
+def local_iso(ts):
+    return datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")
+
+
+def fetch_tracks():
+    """Returns every library track. Starts Music hidden if needed and quits it afterwards."""
+    launched = False
+    if not _music_running():
+        subprocess.run(["open", "-g", "-j", "-a", "Music"], check=False)
+        launched = True
+    try:
+        last = ""
+        for _ in range(20):
+            r = subprocess.run(["osascript", "-l", "JavaScript", "-e", JXA],
+                               capture_output=True, text=True, timeout=300)
+            if r.returncode == 0 and r.stdout.strip():
+                return _parse(json.loads(r.stdout))
+            last = r.stderr.strip()
+            if "-1743" in last or "Not authorized" in last:
+                raise MusicError(
+                    "Not allowed to control Music. Approve the Automation prompt, or enable it in "
+                    "System Settings → Privacy & Security → Automation.")
+            time.sleep(1.5)  # Music may still be starting up
+        raise MusicError(f"Could not read the Music library: {last}")
+    finally:
+        if launched:
+            subprocess.run(["osascript", "-e", 'tell application "Music" to quit'],
+                           capture_output=True, check=False)
+
+
+def _parse(d):
+    tracks = []
+    for i, pid in enumerate(d["pid"]):
+        tracks.append({
+            "pid": pid.upper(),
+            "title": d["title"][i] or "",
+            "artist": d["artist"][i] or "",
+            "album": d["album"][i] or "",
+            "duration": float(d["duration"][i] or 0),
+            "plays": int(d["plays"][i] or 0),
+            "played_ts": _iso_to_ts(d["played"][i]),
+            "added_ts": _iso_to_ts(d["added"][i]),
+        })
+    return tracks
+
+
+def has_backfill(con):
+    return con.execute("SELECT 1 FROM snapshots LIMIT 1").fetchone() is not None
+
+
+def snapshot(con, kind="manual", tracks=None, now=None):
+    """Takes a snapshot and records other-device plays. Returns a dict of what changed."""
+    tracks = fetch_tracks() if tracks is None else tracks
+    now = int(time.time()) if now is None else now
+    prev = con.execute("SELECT MAX(ts) FROM snapshots").fetchone()[0]
+    first = prev is None
+    if first:
+        kind = "backfill"
+    known = {r["persistent_id"]: r for r in con.execute("SELECT * FROM library")}
+    added_plays = 0
+    seen = set()
+
+    with con:
+        for t in tracks:
+            pid = t["pid"]
+            seen.add(pid)
+            row = known.get(pid)
+            if row is None:
+                # New to us. If it was added since the last snapshot, its plays are new plays.
+                delta = t["plays"] if (not first and t["added_ts"] and t["added_ts"] > prev) else 0
+                con.execute(
+                    """INSERT INTO library (persistent_id, title, artist, album, duration, play_count,
+                       played_ts, added_ts, baseline_play_count, first_seen_ts, updated_ts)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    (pid, t["title"], t["artist"], t["album"], t["duration"], t["plays"],
+                     t["played_ts"], t["added_ts"], t["plays"] - delta, now, now))
+                since = t["added_ts"] if delta else None
+            else:
+                delta = t["plays"] - row["play_count"]
+                since = prev
+                con.execute(
+                    """UPDATE library SET title=?, artist=?, album=?, duration=?, play_count=?,
+                       played_ts=?, added_ts=?, updated_ts=?, in_library=1 WHERE persistent_id=?""",
+                    (t["title"], t["artist"], t["album"], t["duration"], t["plays"],
+                     t["played_ts"], t["added_ts"], now, pid))
+            if delta > 0 and not first:
+                added_plays += _record_other_plays(con, t, delta, since, now)
+
+        missing = set(known) - seen
+        con.executemany("UPDATE library SET in_library=0, updated_ts=? WHERE persistent_id=?",
+                        [(now, pid) for pid in missing])
+        con.execute(
+            "INSERT INTO snapshots (ts, kind, tracks, total_play_count, other_plays_added) VALUES (?,?,?,?,?)",
+            (now, kind, len(tracks), sum(t["plays"] for t in tracks), added_plays))
+
+    return {"kind": kind, "tracks": len(tracks), "other_plays": added_plays,
+            "total_play_count": sum(t["plays"] for t in tracks)}
+
+
+def _record_other_plays(con, t, delta, since, now):
+    """Adds the part of a play-count increase that the Mac logger didn't record."""
+    mac = con.execute(
+        """SELECT COUNT(*) FROM plays WHERE source='mac' AND persistent_id=?
+           AND ended_ts > ? AND ended_ts <= ?
+           AND (duration IS NULL OR duration = 0 OR seconds_listened >= duration * ?)""",
+        (t["pid"], since or 0, now, COMPLETED_FRACTION)).fetchone()[0]
+    other = delta - mac
+    if other <= 0:
+        return 0
+    # The exact times are unknown. The last one is at the track's "last played" date
+    # (when that falls inside the window); earlier ones are placed back to back before it.
+    lo = since or 0
+    last = t["played_ts"] if t["played_ts"] and lo < t["played_ts"] <= now else now
+    step = max(int(t["duration"]) or 180, 60)
+    rows = []
+    for i in range(other):
+        ts = max(lo + 1, last - (other - 1 - i) * step)
+        rows.append((ts, local_iso(ts), t["title"], t["artist"], t["album"], t["duration"] or None,
+                     t["duration"], None, "other", t["pid"], now))
+    con.executemany(
+        """INSERT INTO plays (ts, played_at, title, artist, album, duration, seconds_listened,
+           skipped, source, persistent_id, ended_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", rows)
+    return other
+
+
+def run_snapshot(kind):
+    con = db.connect()
+    try:
+        return snapshot(con, kind)
+    finally:
+        con.close()

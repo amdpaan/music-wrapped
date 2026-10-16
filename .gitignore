@@ -1,0 +1,17 @@
+# Personal data — normally lives in ~/Library/Application Support/music-wrapped,
+# ignored here too in case MUSIC_WRAPPED_HOME points inside the repo.
+*.db
+*.db-wal
+*.db-shm
+snapshots/
+reports/
+summary.json
+config.json
+logs/
+
+# Build output
+build/
+__pycache__/
+*.pyc
+
+.DS_Store
