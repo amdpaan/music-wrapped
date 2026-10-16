@@ -9,7 +9,7 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 - **Picks up iPhone (and other device) plays** from synced play counts, once a day and before every report.
 - **Generates Wrapped pages** (weekly, monthly, yearly, all-time and custom ranges) as single self-contained
   HTML files with your album artwork, with a clickable macOS notification when a scheduled one is ready.
-- **Backs up your play history** every Sunday: dated copies on your Mac, plus an optional private GitHub repo.
+- **Backs up your play history** every week: dated copies on your Mac, plus an optional private GitHub repo.
 - **Writes `summary.json`** (this week's hours, top artist, top song) for desktop widgets.
 
 ## Requirements
@@ -37,8 +37,8 @@ The installer:
    | Agent | When | What |
    |---|---|---|
    | `com.musicwrapped.logger` | at login, kept alive | logs Mac plays |
-   | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (other-device plays) |
-   | `com.musicwrapped.weekly` | Sunday 22:00 | weekly report + all-time refresh + backup |
+   | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (other-device plays) + health check |
+   | `com.musicwrapped.weekly` | Monday 00:05 | last week's report + all-time refresh + backup |
    | `com.musicwrapped.monthly` | 1st of the month, 09:00 | last month's report |
    | `com.musicwrapped.yearly` | 1 December, 09:05 | Jan–Nov Wrapped |
 
@@ -78,9 +78,10 @@ music-wrapped open                         # newest report of any kind
 music-wrapped open weekly                  # reports/weekly/latest.html
 music-wrapped home                         # page listing every report you've generated
 
-music-wrapped status                       # what's logged, agents loaded, latest reports
+music-wrapped status                       # what's logged, agents loaded, latest reports, health
+music-wrapped health                       # is anything broken? (exit code 1 if so)
 music-wrapped snapshot                     # pick up iPhone plays now
-music-wrapped backup                       # back up plays.db now (also runs every Sunday)
+music-wrapped backup                       # back up plays.db now (also runs every Monday)
 music-wrapped backup --setup-github        # set up the private GitHub backup repo (once)
 music-wrapped summary                      # rewrite + print summary.json
 music-wrapped doctor                       # check that Music's notifications arrive
@@ -114,9 +115,22 @@ music-wrapped custom 2026-10-01 2026-10-31 --name "Test"
 iPhone plays show up after the **second** snapshot (the first one is only a baseline): play something on
 your iPhone, wait a few minutes for iCloud to sync, then run `music-wrapped snapshot`.
 
+## Health check
+
+Every day, with the snapshot, music-wrapped checks that:
+- all 5 jobs are loaded and the logger is running
+- the logger hasn't logged errors in the last 24 h
+- a snapshot has succeeded in the last 2 days (if not, the "control Music" permission was probably revoked)
+- if Music has played on this Mac in the last 3 days, plays are being logged (the logger records when it last saw
+  Music playing, in `heartbeat.json`)
+- there's a backup from the last 8 days
+
+It only notifies you when something is wrong. Click the notification to see the details (`health.txt`).
+Run it anytime with `music-wrapped health`; `music-wrapped status` shows it too.
+
 ## Backups
 
-`plays.db` is the only copy of your Mac play history, so it's backed up every Sunday with the weekly report
+`plays.db` is the only copy of your Mac play history, so it's backed up every Monday with the weekly report
 (or anytime with `music-wrapped backup`):
 
 - **On your Mac:** `backups/plays-YYYY-MM-DD.db`, the newest 8 kept. This protects against corruption or accidental deletion.
@@ -176,6 +190,8 @@ Everything personal lives outside the repo, in `$HOME/Library/Application Suppor
 plays.db              SQLite: plays (every play, kept forever), library (all-time stats), snapshots (log)
 summary.json          widget summary, rewritten after every play and report
 pending.json          song in progress while the logger restarts (usually absent)
+heartbeat.json        when the logger last saw Music playing (health check)
+health.txt            details of the last failed health check
 config.json           {"mode": "notifications" | "poll"}
 reports/index.html    home page listing every report (music-wrapped home)
 reports/weekly/       2026-W42.html … latest.html
@@ -217,13 +233,12 @@ for its state every 30 s via AppleScript, only while Music is running. Switch ba
 
 - A song that was already playing when the logger started is counted from that moment, not from its beginning.
 - Plays on other devices only reach the Mac when iCloud syncs play counts, and their exact times are approximate.
-- The Sunday 22:00 weekly report doesn't include the last two hours of Sunday. Re-run
-  `music-wrapped report weekly --week <week>` to regenerate it.
 
 ## Development
 
 ```sh
-python3 -m unittest discover tests     # counting rules
+python3 -m unittest discover tests     # counting rules + logger end-to-end (~30 s)
+MUSIC_WRAPPED_SKIP_LOGGER_TESTS=1 python3 -m unittest discover tests   # counting rules only
 swiftc -O -o build/music-wrapped-logger logger/main.swift
 build/music-wrapped-logger --probe 30  # print raw Music notifications
 MUSIC_WRAPPED_HOME=/tmp/mw music-wrapped demo   # use a different data folder

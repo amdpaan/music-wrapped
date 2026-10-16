@@ -7,7 +7,7 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from . import backup, db, library, notify, paths, reports, summary
+from . import backup, db, health, library, notify, paths, reports, summary
 
 LOGGER = paths.SUPPORT / "bin/music-wrapped-logger"
 LOGGER_LABEL = "com.musicwrapped.logger"
@@ -36,10 +36,26 @@ def open_path(p):
 
 def cmd_snapshot(a):
     r = take_snapshot(a.kind)
+    con = db.connect()
     if r:
-        con = db.connect()
         summary.write(con)
+    if a.kind == "daily":  # the daily job also checks that nothing is silently broken
+        run_health(con, notify_problems=True)
     return 0 if r else 1
+
+
+def run_health(con, notify_problems=False):
+    results = health.check(con)
+    text = health.report(results)
+    bad = health.problems(results)
+    if bad and notify_problems:
+        f = paths.SUPPORT / "health.txt"
+        f.write_text(f"music-wrapped health check, {datetime.now():%Y-%m-%d %H:%M}\n\n{text}\n")
+        more = f" (+{len(bad) - 1} more)" if len(bad) > 1 else ""
+        notify.notify("Music Wrapped needs attention", f"{bad[0][0]}: {bad[0][1]}{more}", f)
+    for line in text.splitlines():
+        log(line)
+    return results
 
 
 def cmd_backfill(a):
@@ -52,8 +68,8 @@ def cmd_backfill(a):
 
 def scheduled_target(kind, today):
     """Which period a scheduled run covers (robust to running late after the Mac was asleep)."""
-    if kind == "weekly":
-        return today if today.weekday() == 6 else today - timedelta(days=7)
+    if kind == "weekly":  # runs Monday 00:05: the week that just ended
+        return today - timedelta(days=7)
     if kind == "monthly":
         first = today.replace(day=1) - timedelta(days=1)
         return first.year, first.month
@@ -183,7 +199,14 @@ def cmd_status(a):
     for k in paths.REPORT_KINDS:
         p = reports.latest(k)
         print(f"latest {k + ':':10} {p if p else '—'}")
+    print("\nHealth:")
+    print(health.report(health.check(con)))
     return 0
+
+
+def cmd_health(a):
+    results = run_health(db.connect(), notify_problems=a.notify)
+    return 1 if health.problems(results) else 0
 
 
 def _config():
@@ -293,6 +316,10 @@ def main(argv=None):
 
     s = sub.add_parser("status", help="show what's logged and what's running")
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser("health", help="check that logging, snapshots and backups are working")
+    s.add_argument("--notify", action="store_true", help="send a notification if something is wrong")
+    s.set_defaults(fn=cmd_health)
 
     s = sub.add_parser("doctor", help="check that Music's track-change notifications arrive")
     s.add_argument("--seconds", type=int, default=45)

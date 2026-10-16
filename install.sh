@@ -76,7 +76,7 @@ k() { printf '<key>%s</key><integer>%s</integer>' "$1" "$2"; }
 say "Installing launchd agents"
 plist com.musicwrapped.logger   true  ""                                              "$SUPPORT/bin/music-wrapped-logger" --refresh-cmd "$CLI"
 plist com.musicwrapped.snapshot false "$(cal "$(k Hour 12)$(k Minute 0)")"            "$CLI" snapshot --kind daily
-plist com.musicwrapped.weekly   false "$(cal "$(k Weekday 0)$(k Hour 22)$(k Minute 0)")" "$CLI" report weekly --scheduled
+plist com.musicwrapped.weekly   false "$(cal "$(k Weekday 1)$(k Hour 0)$(k Minute 5)")" "$CLI" report weekly --scheduled
 plist com.musicwrapped.monthly  false "$(cal "$(k Day 1)$(k Hour 9)$(k Minute 0)")"    "$CLI" report monthly --scheduled
 plist com.musicwrapped.yearly   false "$(cal "$(k Month 12)$(k Day 1)$(k Hour 9)$(k Minute 5)")" "$CLI" report yearly --scheduled
 

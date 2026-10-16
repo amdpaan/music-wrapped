@@ -22,7 +22,11 @@ import AppKit
 import Foundation
 import SQLite3
 
-let minSeconds = 30.0          // a play counts after 30 s of listening
+let env = ProcessInfo.processInfo.environment
+// Test settings (tests/test_logger.py): a private notification name so tests never reach the real
+// logger, a shorter minimum, and a fake answer to "what is Music playing?".
+let notificationName = Notification.Name(env["MUSIC_WRAPPED_NOTIFICATION"] ?? "com.apple.Music.playerInfo")
+let minSeconds = Double(env["MUSIC_WRAPPED_MIN_SECONDS"] ?? "") ?? 30.0   // a play counts after 30 s of listening
 let skipFraction = 0.5         // skipped = stopped before 50 %
 let pollInterval = 30.0
 let musicBundleID = "com.apple.Music"
@@ -33,6 +37,7 @@ let dbPath = supportDir.appendingPathComponent("plays.db").path
 let summaryPath = supportDir.appendingPathComponent("summary.json")
 let configPath = supportDir.appendingPathComponent("config.json")
 let pendingPath = supportDir.appendingPathComponent("pending.json")
+let heartbeatPath = supportDir.appendingPathComponent("heartbeat.json")   // read by `music-wrapped health`
 let resumeWindow = 600.0       // resume a saved song only if we were stopped for under 10 min
 
 func log(_ s: String) {
@@ -407,6 +412,12 @@ func musicRunning() -> Bool {
 /// Asks Music for its current state, shaped like a playerInfo notification. nil if Music
 /// isn't running or we're not allowed to control it.
 func queryMusic() -> [AnyHashable: Any]? {
+    if let fake = env["MUSIC_WRAPPED_TEST_QUERY"] {
+        guard let d = fake.data(using: .utf8), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        var info: [AnyHashable: Any] = o
+        if let ms = o["Total Time"] as? Double { info["Total Time"] = NSNumber(value: ms) }
+        return info
+    }
     guard musicRunning() else { return nil }
     var err: NSDictionary?
     let res = pollScript.executeAndReturnError(&err)
@@ -429,20 +440,56 @@ func queryMusic() -> [AnyHashable: Any]? {
 }
 
 func pollOnce(_ tracker: Tracker) {
-    if let info = queryMusic() { tracker.handle(info) }
+    if let info = queryMusic() {
+        heartbeat(info)
+        tracker.handle(info)
+    }
+}
+
+// MARK: - Heartbeat
+
+/// Records when Music was last seen playing (written at most once a minute).
+var lastHeartbeat = Date.distantPast
+func heartbeat(_ info: [AnyHashable: Any]) {
+    guard info["Player State"] as? String == "Playing", Date().timeIntervalSince(lastHeartbeat) > 60 else { return }
+    lastHeartbeat = Date()
+    let obj: [String: Any] = ["last_playing": isoLocal.string(from: lastHeartbeat),
+                              "last_playing_ts": Int(lastHeartbeat.timeIntervalSince1970)]
+    if let d = try? JSONSerialization.data(withJSONObject: obj) { try? d.write(to: heartbeatPath, options: .atomic) }
 }
 
 // MARK: - Main
 
+/// Restores the saved play and records the heartbeat if Music is already playing.
+func startup(_ info: [AnyHashable: Any]?) {
+    if let info = info { heartbeat(info) }
+    tracker.restore(info, now: Date())
+}
+
 let args = CommandLine.arguments
 let dnc = DistributedNotificationCenter.default()
+
+// --post '<json>': post one playerInfo-shaped notification (tests only; uses MUSIC_WRAPPED_NOTIFICATION).
+if args.count >= 3, args[1] == "--post" {
+    guard env["MUSIC_WRAPPED_NOTIFICATION"] != nil else {
+        print("--post needs MUSIC_WRAPPED_NOTIFICATION, so it can never fake real Music events")
+        exit(1)
+    }
+    let o = (try? JSONSerialization.jsonObject(with: Data(args[2].utf8)) as? [String: Any]) ?? [:]
+    var info: [AnyHashable: Any] = [:]
+    for (k, v) in o {
+        if k == "PersistentID", let n = v as? NSNumber { info[k] = NSNumber(value: n.int64Value) } else { info[k] = v }
+    }
+    dnc.postNotificationName(notificationName, object: nil, userInfo: info, deliverImmediately: true)
+    exit(0)
+}
 
 if args.count >= 2, args[1] == "--probe" {
     let secs = args.count >= 3 ? Double(args[2]) ?? 60 : 60
     setvbuf(stdout, nil, _IOLBF, 0)  // print events live, even when piped
     var count = 0
     print("Listening for com.apple.Music.playerInfo for \(Int(secs)) s. Play, pause or skip a song in Music now…")
-    dnc.addObserver(forName: Notification.Name("com.apple.Music.playerInfo"), object: nil, queue: .main) { n in
+    dnc.addObserver(forName: notificationName, object: nil, queue: .main) { n in
         count += 1
         let info = n.userInfo ?? [:]
         let pid = (info["PersistentID"] as? NSNumber).map { String(format: "%016llX", UInt64(bitPattern: $0.int64Value)) } ?? "-"
@@ -479,7 +526,7 @@ func stopPolling() {
 
 if mode == "poll" {
     log("starting in poll mode (every \(Int(pollInterval)) s while Music is running)")
-    tracker.restore(queryMusic(), now: Date())
+    startup(queryMusic())
     if musicRunning() { startPolling() }
     ws.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { n in
         if (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier == musicBundleID {
@@ -488,9 +535,11 @@ if mode == "poll" {
     }
 } else {
     log("starting in notification mode")
-    tracker.restore(queryMusic(), now: Date())
-    dnc.addObserver(forName: Notification.Name("com.apple.Music.playerInfo"), object: nil, queue: .main) { n in
-        tracker.handle(n.userInfo ?? [:])
+    startup(queryMusic())
+    dnc.addObserver(forName: notificationName, object: nil, queue: .main) { n in
+        let info = n.userInfo ?? [:]
+        heartbeat(info)
+        tracker.handle(info)
     }
 }
 
