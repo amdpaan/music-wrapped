@@ -173,6 +173,11 @@ Songs without artwork, or streamed but not in your library, show their first let
   the track (or ran from its start to its end with at least half heard) are subtracted, and the rest of the increase becomes `source = 'other'` rows. Their time is the
   track's "last played" date (the exact times of several plays aren't known), and listening time is
   estimated as the track length. Skips can't be known for them.
+- **iCloud backlogs**: iCloud sometimes delivers many old plays from other devices at once (e.g. +70 on one song).
+  A real play always moves a song's "last played" date too, so an increase without a new last-played date is
+  treated as old plays syncing in. It goes into all-time stats but isn't counted as this week's listening.
+  If an increase is larger than could fit in the time since the last snapshot, at most one play is counted,
+  and only if a Mac play doesn't explain the new last-played date.
 - **All-time** reports use the library play counts directly, the true total across all devices.
 - **Date-range** reports (weekly, monthly, yearly, custom) add up the logged rows in that range,
   so 3 plays one week + 5 the next = 8 in that month. Nothing is counted twice.

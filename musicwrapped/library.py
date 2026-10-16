@@ -33,6 +33,8 @@ COMPLETED_FRACTION = 0.9
 # A play also counts as finished if it spanned the whole track in wall-clock time (within this many
 # seconds) and at least half was heard: covers listening time the logger missed while restarting.
 SPAN_SLACK = 10
+# A Mac play "explains" a track's new last-played date if it ended this close to it (seconds).
+EXPLAIN_SLACK = 180
 
 
 class MusicError(RuntimeError):
@@ -122,6 +124,7 @@ def snapshot(con, kind="manual", tracks=None, now=None):
         kind = "backfill"
     known = {r["persistent_id"]: r for r in con.execute("SELECT * FROM library")}
     added_plays = 0
+    ignored = 0  # play-count increases treated as iCloud catching up on old plays
     seen = set()
 
     with con:
@@ -148,7 +151,9 @@ def snapshot(con, kind="manual", tracks=None, now=None):
                     (t["title"], t["artist"], t["album"], t["genre"], t["duration"], t["plays"],
                      t["played_ts"], t["added_ts"], now, pid))
             if delta > 0 and not first:
-                added_plays += _record_other_plays(con, t, delta, since, now)
+                added, skipped = _record_other_plays(con, t, delta, since, now)
+                added_plays += added
+                ignored += skipped
 
         missing = set(known) - seen
         con.executemany("UPDATE library SET in_library=0, updated_ts=? WHERE persistent_id=?",
@@ -157,12 +162,20 @@ def snapshot(con, kind="manual", tracks=None, now=None):
             "INSERT INTO snapshots (ts, kind, tracks, total_play_count, other_plays_added) VALUES (?,?,?,?,?)",
             (now, kind, len(tracks), sum(t["plays"] for t in tracks), added_plays))
 
-    return {"kind": kind, "tracks": len(tracks), "other_plays": added_plays,
+    return {"kind": kind, "tracks": len(tracks), "other_plays": added_plays, "ignored": ignored,
             "total_play_count": sum(t["plays"] for t in tracks)}
 
 
 def _record_other_plays(con, t, delta, since, now):
-    """Adds the part of a play-count increase that the Mac logger didn't record."""
+    """Adds the part of a play-count increase that the Mac logger didn't record.
+
+    Returns (plays added, increase ignored). iCloud can deliver a backlog of old plays from other
+    devices all at once (e.g. +70 on one song). Real plays in this window also move the track's
+    "last played" date into the window, so:
+      - last-played date unchanged: the whole increase is old plays syncing in. Absorbed, not counted.
+      - more plays than could fit in the window: a backlog plus at most one real play, which counts
+        only if a Mac play doesn't explain the new last-played date.
+    """
     mac = con.execute(
         """SELECT COUNT(*) FROM plays WHERE source='mac' AND persistent_id=?
            AND ended_ts > ? AND ended_ts <= ?
@@ -171,11 +184,26 @@ def _record_other_plays(con, t, delta, since, now):
         (t["pid"], since or 0, now, COMPLETED_FRACTION, SPAN_SLACK)).fetchone()[0]
     other = delta - mac
     if other <= 0:
-        return 0
+        return 0, 0
+    lo = since or 0
+    played = t["played_ts"]
+    if not (played and lo < played <= now):
+        return 0, other
+    fit = max(1, int((now - lo) // max(t["duration"] or 0, 30)))
+    if other > fit:
+        explained = con.execute(
+            "SELECT 1 FROM plays WHERE source='mac' AND persistent_id=? AND ABS(ended_ts - ?) <= ? LIMIT 1",
+            (t["pid"], played, EXPLAIN_SLACK)).fetchone()
+        keep = 0 if explained else 1
+        ignored = other - keep
+        other = keep
+        if not other:
+            return 0, ignored
+    else:
+        ignored = 0
     # The exact times are unknown. The last one is at the track's "last played" date
     # (when that falls inside the window); earlier ones are placed back to back before it.
-    lo = since or 0
-    last = t["played_ts"] if t["played_ts"] and lo < t["played_ts"] <= now else now
+    last = played
     step = max(int(t["duration"]) or 180, 60)
     rows = []
     for i in range(other):
@@ -185,7 +213,7 @@ def _record_other_plays(con, t, delta, since, now):
     con.executemany(
         """INSERT INTO plays (ts, played_at, title, artist, album, duration, seconds_listened,
            skipped, source, persistent_id, ended_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)""", rows)
-    return other
+    return other, ignored
 
 
 def run_snapshot(kind):

@@ -72,6 +72,24 @@ class Counting(unittest.TestCase):
         r = library.snapshot(self.con, tracks=[track("A", 11)], now=T0 + 3600)
         self.assertEqual(r["other_plays"], 0)
 
+    def test_icloud_backlog_is_not_counted(self):
+        # iCloud delivers 70 old plays at once; the song wasn't played in this window.
+        library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0)
+        r = library.snapshot(self.con, tracks=[track("A", 80, played_ts=T0 - 86400)], now=T0 + 600)
+        self.assertEqual((r["other_plays"], r["ignored"]), (0, 70))
+        self.assertEqual(stats.library_totals(self.con)["plays"], 80)  # all-time still gets them
+
+    def test_backlog_with_one_real_play_counts_one(self):
+        library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0)
+        r = library.snapshot(self.con, tracks=[track("A", 85, played_ts=T0 + 500)], now=T0 + 600)
+        self.assertEqual((r["other_plays"], r["ignored"]), (1, 74))
+
+    def test_backlog_explained_by_a_mac_play_counts_nothing(self):
+        library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0)
+        mac_play(self.con, "A", T0 + 100, 200)              # ends T0 + 300: Music's last played
+        r = library.snapshot(self.con, tracks=[track("A", 60, played_ts=T0 + 300)], now=T0 + 600)
+        self.assertEqual((r["other_plays"], r["ignored"]), (0, 49))
+
     def test_new_track_is_baseline_only(self):
         library.snapshot(self.con, tracks=[track("A", 1)], now=T0)
         mac_play(self.con, "B", T0 + 100, 200)  # logged on the Mac before B was ever snapshotted

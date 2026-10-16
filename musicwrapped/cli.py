@@ -21,7 +21,8 @@ def take_snapshot(kind):
     try:
         r = library.run_snapshot(kind)
         log(f"snapshot ({r['kind']}): {r['tracks']} tracks, {r['total_play_count']:,} library plays, "
-            f"{r['other_plays']} new plays from other devices")
+            f"{r['other_plays']} new plays from other devices"
+            + (f" ({r['ignored']} older plays synced from iCloud, absorbed into all-time only)" if r.get("ignored") else ""))
         return r
     except (library.MusicError, OSError, subprocess.SubprocessError, ValueError) as ex:
         log(f"snapshot failed: {ex}")
