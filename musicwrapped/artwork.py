@@ -43,27 +43,30 @@ end run
 PID_RE = re.compile(r"\ba-([0-9A-F]{16})\b")
 
 
-def _dir():
+def _dir(size=SIZE):
+    """artwork/ holds the report size; other sizes (stories) get their own subfolder."""
     d = paths.SUPPORT / "artwork"
+    if size != SIZE:
+        d = d / str(size)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-def _missing(pids):
+def _missing(pids, size=SIZE):
     out = []
     for pid in pids:
-        if (_dir() / f"{pid}.jpg").exists():
+        if (_dir(size) / f"{pid}.jpg").exists():
             continue
-        none = _dir() / f"{pid}.none"
+        none = _dir(size) / f"{pid}.none"
         if none.exists() and time.time() - none.stat().st_mtime < RETRY_DAYS * 86400:
             continue
         out.append(pid)
     return out
 
 
-def fetch(pids):
+def fetch(pids, size=SIZE):
     """Exports artwork for tracks not cached yet. Starts Music hidden if needed."""
-    todo = _missing(sorted(set(pids)))
+    todo = _missing(sorted(set(pids)), size)
     if not todo or (not ALLOW_LAUNCH and not library.music_running()):
         return
     with tempfile.TemporaryDirectory() as tmp, library.music_session():
@@ -74,15 +77,15 @@ def fetch(pids):
             print(f"artwork: {r.stderr.strip()}")
             return  # e.g. no permission: try again next time
         for pid in todo:
-            out = _dir() / f"{pid}.jpg"
+            out = _dir(size) / f"{pid}.jpg"
             ok = raw[pid].exists() and subprocess.run(
-                ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "80", "-Z", str(SIZE), str(raw[pid]), "--out", str(out)],
+                ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", str(size), str(raw[pid]), "--out", str(out)],
                 capture_output=True).returncode == 0
             if not ok:
-                (_dir() / f"{pid}.none").touch()
+                (_dir(size) / f"{pid}.none").touch()
 
 
-def inject(html):
+def inject(html, size=SIZE):
     """Adds cover images for every `a-<PID>` slot in the page."""
     if not ENABLED:
         return html
@@ -90,12 +93,12 @@ def inject(html):
     if not pids:
         return html
     try:
-        fetch(pids)
+        fetch(pids, size)
     except (OSError, subprocess.SubprocessError, library.MusicError) as ex:
         print(f"artwork skipped: {ex}")
     rules = []
     for pid in sorted(pids):
-        f = _dir() / f"{pid}.jpg"
+        f = _dir(size) / f"{pid}.jpg"
         if f.exists():
             b64 = base64.b64encode(f.read_bytes()).decode()
             rules.append(f".a-{pid}{{background-image:url(data:image/jpeg;base64,{b64});color:transparent}}")

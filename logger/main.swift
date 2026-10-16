@@ -167,6 +167,16 @@ func writeSummary(_ db: DB) {
         SELECT title, artist, COUNT(*) n FROM plays WHERE ts >= ? AND ts < ?
         GROUP BY title, artist ORDER BY n DESC, SUM(\(listened)) DESC LIMIT 1
         """, [start, end]).first
+    // Genre as reported for the play, else the library track's (same rule as musicwrapped/stats.py).
+    // The library table is created by the Python side, so it may not exist yet.
+    let hasLibrary = !db.rows("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'library'", []).isEmpty
+    let genreExpr = hasLibrary
+        ? "SELECT COALESCE(NULLIF(p.genre, ''), l.genre) g FROM plays p LEFT JOIN library l ON l.persistent_id = p.persistent_id"
+        : "SELECT p.genre g FROM plays p"
+    let genre = db.rows("""
+        SELECT g, COUNT(*) n FROM (\(genreExpr) WHERE p.ts >= ? AND p.ts < ?)
+        WHERE COALESCE(g, '') != '' GROUP BY g ORDER BY n DESC, g LIMIT 1
+        """, [start, end]).first
     let y = isoCalendar.component(.yearForWeekOfYear, from: now)
     let w = isoCalendar.component(.weekOfYear, from: now)
     let dayFmt = DateFormatter()
@@ -179,9 +189,11 @@ func writeSummary(_ db: DB) {
         "plays": Int(tot[1]) ?? 0,
         "top_artist": NSNull(),
         "top_song": NSNull(),
+        "top_genre": NSNull(),
     ]
     if let a = artist { obj["top_artist"] = ["name": a[0], "plays": Int(a[1]) ?? 0] }
     if let s = song { obj["top_song"] = ["title": s[0], "artist": s[1], "plays": Int(s[2]) ?? 0] }
+    if let g = genre { obj["top_genre"] = ["name": g[0], "plays": Int(g[1]) ?? 0] }
     guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else { return }
     let tmp = summaryPath.appendingPathExtension("tmp")
     do {

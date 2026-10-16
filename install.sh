@@ -19,6 +19,8 @@ mkdir -p "$SUPPORT/bin" "$LOGS" "$SUPPORT/reports" "$AGENTS"
 
 say "Building the logger"
 swiftc -O -o "$SUPPORT/bin/music-wrapped-logger" "$REPO/logger/main.swift"
+say "Building the story renderer"
+swiftc -O -o "$SUPPORT/bin/music-wrapped-render" "$REPO/renderer/main.swift"
 say "Signing the logger (so macOS remembers its 'control Music' approval across updates)"
 "$REPO/tools/sign-logger.sh" "$SUPPORT/bin/music-wrapped-logger" \
   || echo "  Signing failed; using the default signature (macOS may ask again after updates)."

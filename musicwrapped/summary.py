@@ -14,6 +14,7 @@ def build(con, today=None):
     plays = S.plays_between(con, start, end)
     artist = S.top_artists(plays, 1)
     song = S.top_songs(plays, 1)
+    genre = S.top_genres(plays, 1)
     y, w, _ = start.isocalendar()
     return {
         "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -23,6 +24,7 @@ def build(con, today=None):
         "plays": len(plays),
         "top_artist": {"name": artist[0].name, "plays": artist[0].plays} if artist else None,
         "top_song": {"title": song[0].name, "artist": song[0].sub, "plays": song[0].plays} if song else None,
+        "top_genre": {"name": genre[0].name, "plays": genre[0].plays} if genre else None,
     }
 
 

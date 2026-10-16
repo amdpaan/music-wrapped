@@ -85,6 +85,7 @@ music-wrapped custom 2026-09-01 2026-12-31 --name "Semester 1"
 music-wrapped open                         # newest report of any kind
 music-wrapped open weekly                  # reports/weekly/latest.html
 music-wrapped home                         # page listing every report you've generated
+music-wrapped story                        # shareable 1080x1920 story images (this week)
 
 music-wrapped status                       # what's logged, agents loaded, latest reports, health
 music-wrapped health                       # is anything broken? (exit code 1 if so)
@@ -148,6 +149,25 @@ Run it anytime with `music-wrapped health`; `music-wrapped status` shows it too.
 
 Restore from GitHub: `sqlite3 plays.db < plays.sql`. From a local copy, copy it over `plays.db`. Stop the
 logger first in either case: `launchctl bootout gui/$(id -u)/com.musicwrapped.logger`, then re-run `./install.sh`.
+
+## Story images
+
+`music-wrapped story` makes six 1080×1920 PNG cards, the size of an Instagram or WhatsApp story, and
+opens the folder:
+
+1. intro with minutes listened, 2. top song (big cover), 3. top artist, 4. top 5 songs,
+5. top genre, 6. a summary card to share.
+
+```sh
+music-wrapped story                    # this week so far
+music-wrapped story monthly --current  # this month so far (default: last month)
+music-wrapped story yearly             # this year, Jan–Nov
+music-wrapped story alltime            # from your library's play counts
+```
+
+They're saved in `stories/<kind>/<period>/`. Cards are drawn with the system WebKit by a small Swift tool
+(`renderer/main.swift`, built by the installer or on first use) and use higher-resolution covers (640 px,
+cached in `artwork/640/`).
 
 ## Top genres
 
@@ -214,6 +234,7 @@ reports/alltime/      2026-10-17.html … latest.html
 reports/custom/       2026-09-01_to_2026-12-31_semester-1.html … latest.html
 logs/                 launchd job output
 artwork/              cached album covers (<PID>.jpg; <PID>.none = no artwork, retried after 7 days)
+stories/              story PNGs (stories/weekly/2026-W42/01-intro.png …)
 backups/              weekly copies of plays.db (newest 8)
 backup-repo/          clone of your private GitHub backup repo
 bin/                  the compiled logger

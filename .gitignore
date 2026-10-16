@@ -10,6 +10,7 @@ config.json
 logs/
 backups/
 artwork/
+stories/
 backup-repo/
 pending.json
 

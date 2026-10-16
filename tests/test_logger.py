@@ -102,7 +102,8 @@ class LoggerTest(unittest.TestCase):
         self.assertEqual((r["title"], r["persistent_id"], r["source"], r["skipped"], r["genre"]),
                          (f"Song {A}", HEX[A], "mac", 1, "Pop"))
         self.assertAlmostEqual(r["seconds_listened"], 3, delta=1)
-        self.assertTrue((Path(self.home) / "summary.json").exists())
+        summary = json.loads((Path(self.home) / "summary.json").read_text())
+        self.assertEqual(summary["top_genre"], {"name": "Pop", "plays": 1})
         self.assertTrue((Path(self.home) / "heartbeat.json").exists())
 
     def test_pauses_excluded_and_duplicates_dont_split(self):

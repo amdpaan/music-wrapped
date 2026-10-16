@@ -178,6 +178,21 @@ def cmd_backup(a):
     return 0
 
 
+def cmd_story(a):
+    from . import story
+    if not a.no_snapshot:
+        take_snapshot("report")
+    out = story.make(db.connect(), a.kind, a)
+    if not out:
+        print("Nothing to show for that period yet. Play some music first.")
+        return 1
+    for f in sorted(out.glob("*.png")):
+        print(f)
+    if not a.no_open:
+        open_path(out)
+    return 0
+
+
 def cmd_home(a):
     reports.write_index()
     p = paths.REPORTS / "index.html"
@@ -320,6 +335,16 @@ def main(argv=None):
     s.add_argument("--setup-github", nargs="?", const="", metavar="REPO",
                    help="create/use a PRIVATE GitHub repo for backups (default: <you>/music-wrapped-data)")
     s.set_defaults(fn=cmd_backup)
+
+    s = sub.add_parser("story", help="shareable 1080x1920 story images (default: this week)")
+    s.add_argument("kind", nargs="?", default="weekly", choices=["weekly", "monthly", "yearly", "alltime"])
+    s.add_argument("--week", help="weekly: ISO week, e.g. 2026-W42")
+    s.add_argument("--month", help="monthly: YYYY-MM (default: last month)")
+    s.add_argument("--current", action="store_true", help="monthly: this month so far")
+    s.add_argument("--year", type=int, help="yearly: year (default: this year)")
+    s.add_argument("--no-open", action="store_true", help="don't open the folder in Finder")
+    s.add_argument("--no-snapshot", action="store_true")
+    s.set_defaults(fn=cmd_story)
 
     s = sub.add_parser("home", help="open the page listing every report")
     s.set_defaults(fn=cmd_home)
