@@ -56,9 +56,9 @@ def device_split(plays):
 def footer(con, extra=""):
     lt = S.logged_totals(con)
     since = f"Logging since <b>{lt['since']:%-d %b %Y}</b>. " if lt["since"] else "No plays logged yet. "
-    return (since + "Top lists and hours include <b>all devices</b>: Mac plays are logged live; plays on other devices "
-            "(e.g. iPhone) are inferred from synced play counts, with hours estimated from track length and times "
-            "approximate. Heatmap and skips are <b>Mac only</b>. " + extra)
+    return (since + "Top lists and hours include <b>all devices</b>: Mac plays are timed live; plays on other devices "
+            "(e.g. iPhone) are inferred from synced play counts, so each one counts as the full song and its time "
+            "is approximate. <b>≈</b> marks times that include those estimates. Heatmap and skips are <b>Mac only</b>. " + extra)
 
 
 def top_cards(plays, n, theme_songs="green", theme_artists="pink", theme_albums="purple"):
@@ -76,8 +76,9 @@ def genres_card(plays, n):
 
 def hero_stats(plays, compare=None):
     mac, other = device_split(plays)
-    h = S.hours(plays)
-    st = [("hours listened", f"{h:,.1f}") if h >= 1 else ("listened", R.fmt_hours(h)),
+    h, est = S.hours(plays), S.estimated_hours(plays)
+    note = f" · ≈{R.fmt_hours(est)} estimated" if est else ""
+    st = [(f"hours listened{note}", f"{h:,.1f}") if h >= 1 else (f"listened{note}", R.fmt_hours(h)),
           ("plays", f"{len(plays):,}"),
           ("artists", f"{len({p.artist for p in plays}):,}")]
     if compare:
@@ -108,6 +109,16 @@ def artist_changes(plays, start, end, n=5):
 
 # ---------- reports ----------
 
+def _prev_same_point(prev, start, prev_start, end):
+    """For a period still in progress: the previous period's plays up to the same point (e.g. Monday
+    to Wednesday 15:00 of last week), so the comparison is like for like. None if the period is over."""
+    now = datetime.now()
+    if now >= datetime(end.year, end.month, end.day):
+        return None
+    cut = S.ts_of(prev_start) + (int(now.timestamp()) - S.ts_of(start))
+    return [p for p in prev if p.ts < cut]
+
+
 def _story(slides_list):
     return "".join(h for _, h in slides_list)
 
@@ -118,11 +129,15 @@ def weekly(con, week_start, slides_only=False):
     name = f"{y}-W{w:02d}"
     plays = S.plays_between(con, start, end)
     prev = S.plays_between(con, start - timedelta(days=7), start)
+    so_far = _prev_same_point(prev, start, start - timedelta(days=7), end)
+    cmp_label = "this time last week" if so_far is not None else "last week"
     h, ph = S.hours(plays), S.hours(prev)
+    pc = ph if so_far is None else S.hours(so_far)
 
     repeat = [(r.name, r.sub, R.fmt_plays(r.plays)) for r in S.on_repeat(plays, 5)]
     skipped = [(t, a, f"{s} of {n} skipped") for t, a, s, n in S.most_skipped(plays)]
-    new = [(r.name, "first time this week", R.fmt_plays(r.plays)) for r in S.new_artists(con, plays, start)]
+    new_rows = S.new_artists(con, plays, start)
+    new = [(r.name, "first time this week", R.fmt_plays(r.plays)) for r in new_rows]
     body = (top_cards(plays, 5)
             + genres_card(plays, 5)
             + R.card("When you listened", R.heatmap(S.heatmap(plays)), "dark",
@@ -134,11 +149,17 @@ def weekly(con, week_start, slides_only=False):
             + R.card("New artists", R.simple_list(new, "No new artists this week."), "yellow",
                      note="Artists you hadn't played before", badge=ALL_DEVICES))
     label = f"Week {w} · {fmt_range(start, end)}"
-    d = SL.data_for(con, "weekly", plays, prev, start, end)
-    sl = SL.build(d, SL.words("weekly"), label, [("peak", SL.peak(d, None))]) if d else []
+    d = SL.data_for(con, "weekly", plays, prev if so_far is None else so_far, start, end)
+    if d:
+        d["prev_label"] = cmp_label
+    last_day = min(end, date.today() + timedelta(days=1)) - timedelta(days=1)
+    sl = SL.build(d, SL.words("weekly"), label, [
+        ("peak", SL.peak(d, None)),
+        ("changes", SL.changes(d, SL.words("weekly"), prev, S.streak_until(con, last_day), len(new_rows))),
+    ]) if d else []
     if slides_only:
         return "weekly", name, sl
-    stats = hero_stats(plays, ("vs last week", _pct(h, ph)))
+    stats = hero_stats(plays, (f"vs {cmp_label}", _pct(h, pc)))
     html = R.page(f"Wrapped {name}", f"Your week in music · {name}", "Your Week, Wrapped",
                   fmt_range(start, end), stats, body,
                   footer(con, f"Last week: <b>{R.fmt_hours(ph)}</b>."), live=date.today() < end,
@@ -160,12 +181,20 @@ def monthly(con, y, m, so_far=False, slides_only=False):
     plays = S.plays_between(con, start, q_end)
     ps, pe = month_bounds(y - (m == 1), (m - 2) % 12 + 1)
     prev = S.plays_between(con, ps, pe)
-    ph = S.hours(prev)
+    part = _prev_same_point(prev, start, ps, end) if so_far else None
+    cmp_label = "this time last month" if part is not None else "last month"
+    pc = S.hours(prev if part is None else part)
     title = f"{calendar.month_name[m]} {y}"
-    d = SL.data_for(con, "monthly", plays, None if so_far else prev, start, q_end)
+    d = SL.data_for(con, "monthly", plays, prev if part is None else part, start, q_end)
+    if d:
+        d["prev_label"] = cmp_label
     weeks = [(lab, h) for lab, h, _ in week_bars(plays, start, q_end)]
-    sl = SL.build(d, SL.words("monthly", calendar.month_name[m]), fmt_range(start, q_end),
-                  [("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}"))]) if d else []
+    wd = SL.words("monthly", calendar.month_name[m])
+    sl = SL.build(d, wd, fmt_range(start, q_end), [
+        ("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}")),
+        ("changes", SL.changes(d, wd, prev, S.streak_until(con, q_end - timedelta(days=1)),
+                               len(S.new_artists(con, plays, start)))),
+    ]) if d else []
     if slides_only:
         return "monthly", name, sl
     body = (top_cards(plays, 10)
@@ -175,7 +204,7 @@ def monthly(con, y, m, so_far=False, slides_only=False):
             + R.card("How your top artists moved", artist_changes(plays, start, q_end), "dark",
                      note="Your month's top 5 artists, ranked week by week", badge=ALL_DEVICES, wide=True))
     html = R.page(f"Wrapped {title}", "Your month in music" + (" · so far" if so_far else ""), title,
-                  fmt_range(start, q_end), hero_stats(plays, None if so_far else ("vs last month", _pct(S.hours(plays), ph))), body,
+                  fmt_range(start, q_end), hero_stats(plays, (f"vs {cmp_label}", _pct(S.hours(plays), pc))), body,
                   footer(con), story=_story(sl), story_css=SL.CSS, story_js=SL.JS)
     return "monthly", name, html
 

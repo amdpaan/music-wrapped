@@ -325,7 +325,9 @@ def ranked(rows, empty="Nothing here yet.", hours=True, round_=False):
     items = []
     for i, r in enumerate(rows, 1):
         sub = f"<span>{e(r.sub)}</span>" if r.sub else ""
-        small = f"<small>{e(fmt_hours(r.seconds / 3600))}</small>" if hours and r.seconds else ""
+        est = getattr(r, "est", 0)
+        tip = ' title="Includes plays on other devices, timed as the full song"' if est else ""
+        small = f'<small{tip}>{"≈" if est else ""}{e(fmt_hours(r.seconds / 3600))}</small>' if hours and r.seconds else ""
         items.append(f'<li class="{"first" if i == 1 else ""}"><span class="n">{i}</span>{cover(r.pid, r.name, round_)}'
                      f'<span class="t"><b>{e(r.name)}</b>{sub}</span>'
                      f'<span class="v">{e(fmt_plays(r.plays))}{small}</span></li>')

@@ -61,6 +61,7 @@ CSS = """
 .sl .t b{display:block;font-size:clamp(18px,4.4vmin,58px);font-weight:900;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sl .t span{display:block;font-size:clamp(13px,3vmin,38px);font-weight:600;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sl .v{font-size:clamp(14px,3vmin,38px);font-weight:800;white-space:nowrap}
+.sl .art.icon{background:rgba(0,0,0,.18);box-shadow:none;font-weight:400}
 .gb{display:flex;flex-direction:column;gap:clamp(12px,3vmin,56px)}
 .gb b{display:flex;justify-content:space-between;font-size:clamp(16px,3.6vmin,48px);font-weight:800;margin-bottom:.3em}
 .gb .tr{height:clamp(10px,2.2vmin,34px);border-radius:0 8px 8px 0;background:rgba(255,255,255,.08);overflow:hidden}
@@ -205,6 +206,11 @@ def _num(n, vmin, max_px):
             f'data-count="{n}">{txt}</div>')
 
 
+def mins(r):
+    """'12 minutes' for a Row, with ≈ when part of it is estimated from other-device plays."""
+    return f'{"≈" if r.est else ""}{round(r.seconds / 60):,} minutes'
+
+
 def plural(n, word):
     return f"{n:,} {word}" + ("" if n == 1 else "s")
 
@@ -227,17 +233,18 @@ def data_for(con, kind, plays=None, prev=None, start=None, end=None):
         return {"minutes": round(lib["hours"] * 60), "plays": lib["plays"], "artists_n": lib["artists"],
                 "songs": songs[:5], "mosaic": songs, "artists": S.library_top(con, "artists", 5),
                 "genres": S.library_top(con, "genres", 5),
-                "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000))}
+                "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000)), "all_estimated": True}
     if not plays:
         return None
     songs = S.top_songs(plays, 9)
     d = {"minutes": round(S.hours(plays) * 60), "plays": len(plays), "artists_n": len({p.artist for p in plays}),
          "songs": songs[:5], "mosaic": songs, "artists": S.top_artists(plays, 5), "genres": S.top_genres(plays, 5),
-         "genre_total": sum(1 for p in plays if p.genre)}
+         "genre_total": sum(1 for p in plays if p.genre), "est_minutes": round(S.estimated_hours(plays) * 60),
+         "minutes_x": S.hours(plays) * 60}
     if start and end:
         d["daily"] = _per_bucket(plays, start, end, kind)
     if prev is not None:
-        d["prev_minutes"] = round(S.hours(prev) * 60)
+        d["prev_minutes"] = S.hours(prev) * 60  # unrounded, so % changes match the report header
     mac = [p for p in plays if p.source == "mac"]
     if mac:
         hours = Counter()
@@ -306,8 +313,9 @@ def minutes(d, words):
     chip = ""
     pm = d.get("prev_minutes")
     if pm:
-        pct = (d["minutes"] - pm) / pm * 100
-        chip = _rv(f'<div class="chip {"up" if pct >= 0 else "down"}">{"+" if pct >= 0 else ""}{pct:.0f}% vs {R.e(words["prev"])}</div>', 4)
+        pct = (d.get("minutes_x", d["minutes"]) - pm) / pm * 100
+        chip = _rv(f'<div class="chip {"up" if pct >= 0 else "down"}">{"+" if pct >= 0 else ""}{pct:.0f}% vs '
+                   f'{R.e(d.get("prev_label") or words["prev"])}</div>', 5)
     hours = d["minutes"] / 60
     chart = ""
     daily = d.get("daily") or []
@@ -322,6 +330,10 @@ def minutes(d, words):
                  f'<div class="hist">{bars}</div><div class="hl">{ends}</div></div>')
     detail = _rv(f'<div class="ss">That’s {hours:,.1f} hours · {plural(d["plays"], "play")} · '
                  f'{plural(d["artists_n"], "artist")}</div>', 3)
+    if d.get("all_estimated"):
+        detail += _rv('<div class="ss">Estimated from play counts × song length</div>', 4)
+    elif d.get("est_minutes"):
+        detail += _rv(f'<div class="ss">≈{d["est_minutes"]:,} of those minutes are estimated from other devices</div>', 4)
     return _panel("dark", f"""
 <div class="split">
   <div class="tx">
@@ -344,7 +356,7 @@ def top_song(d, words):
   <div class="tx">
     {_rv(f'<div class="sh" style="font-size:clamp(34px,{_fit(s.name)}vmin,150px)">{R.e(s.name)}</div>', 2)}
     {_rv(f'<div class="sm">{R.e(s.sub)}</div>', 3)}
-    {_rv(f'<div class="ss">Played {plural(s.plays, "time")} {R.e(words["span"])} · {round(s.seconds / 60):,} minutes</div>', 4)}
+    {_rv(f'<div class="ss">Played {plural(s.plays, "time")} {R.e(words["span"])} · {mins(s)}</div>', 4)}
   </div>
 </div>""")
 
@@ -357,7 +369,7 @@ def top_artist(d, words):
   {_rv(_cover(a.pid, a.name, round_=True), 1)}
   <div class="tx">
     {_rv(f'<div class="sh" style="font-size:clamp(34px,{_fit(a.name)}vmin,150px)">{R.e(a.name)}</div>', 2)}
-    {_rv(f'<div class="sm">{plural(a.plays, "play")} · {round(a.seconds / 60):,} minutes</div>', 3)}
+    {_rv(f'<div class="sm">{plural(a.plays, "play")} · {mins(a)}</div>', 3)}
     {_rv(f'<div class="ss">#1 of {plural(d["artists_n"], "artist")} {R.e(words["span"])}</div>', 4)}
   </div>
 </div>""")
@@ -400,6 +412,52 @@ def peak(d, words):
 {_rv(f'<div class="sh">{R.e(title)}</div>', 1)}
 {_rv(f'<div class="sm">Most of your listening happened on {R.e(d["peak_day"])} {part}, peaking around {d["peak_hour"]:02d}:00.</div>', 2)}
 {_rv(f'<div class="hist">{bars}</div><div class="hl"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>', 3)}""")
+
+
+def changes(d, words, prev, streak, new_artists=0):
+    """Compared with the period before: listening time, #1 artist and song, the streak and new artists.
+    prev: the whole previous period's plays (for its #1s); d["prev_minutes"] is the like-for-like
+    comparison (cut at the same point when the period is still in progress)."""
+    n, first, last = streak
+    top_a, top_s = d["artists"][0], d["songs"][0]
+    pa, ps = S.top_artists(prev, 1), S.top_songs(prev, 1)
+    if not prev and n < 2 and not new_artists:
+        return ""
+    label = d.get("prev_label") or words["prev"]
+    head = ""
+    pm = d.get("prev_minutes")
+    if pm:
+        pct = (d.get("minutes_x", d["minutes"]) - pm) / pm * 100
+        if abs(round(pct)) < 3:  # same rounding as the minutes chip
+            big, line = "Steady", f"About as much listening as {label}"
+        else:
+            big = f'{"+" if pct > 0 else "−"}{abs(pct):,.0f}%'
+            line = f'{"More" if pct > 0 else "Less"} listening than {label}'
+        head = (_rv(f'<div class="sh" style="font-size:clamp(48px,14vmin,200px)">{big}</div>', 1)
+                + _rv(f'<div class="sm">{R.e(line)}</div>', 2))
+
+    def row(i, art, title, sub, mark=""):
+        return _rv(f'<li>{art}<span class="t"><b>{R.e(title)}</b><span>{R.e(sub)}</span></span>'
+                   f'<span class="v">{mark}</span></li>', i + 3)
+
+    def one(kind, now, before, round_=False):
+        if not before:
+            return row(0, R.cover(now.pid, now.name, round_, big=True), now.name, f"Your #1 {kind}")
+        if before[0].name == now.name and before[0].sub == now.sub:
+            return row(0, R.cover(now.pid, now.name, round_, big=True), now.name, f"Still your #1 {kind}", "=")
+        return row(0, R.cover(now.pid, now.name, round_, big=True), now.name, f"New #1 {kind} · was {before[0].name}", "▲")
+
+    rows = [one("artist", top_a, pa, True), one("song", top_s, ps)]
+    if n >= 2:
+        rows.append(row(2, '<span class="art icon">🔥</span>', f"{n} days in a row",
+                        f"Listening streak · {first:%-d %b} – {last:%-d %b}"))
+    if new_artists:
+        rows.append(row(3, '<span class="art icon">✦</span>', plural(new_artists, "new artist"),
+                        f"First played {words['span']}"))
+    return _panel("teal", f"""
+{_rv(f'<div class="sk">Compared with {R.e(label)}</div>')}
+{head}
+<ol class="sl ch">{"".join(rows)}</ol>""")
 
 
 def best_bucket(title, buckets, fmt_label):

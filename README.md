@@ -12,6 +12,11 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 - **Backs up your play history** every week: dated copies on your Mac, plus an optional private GitHub repo.
 - **Writes `summary.json`** (this week's hours, top artist, top song) for desktop widgets.
 
+![The first slide of a weekly report](docs/screenshots/slides.jpg)
+
+<sub>Screenshots use the built-in demo (`music-wrapped demo`): made-up artists, and letters instead of album
+covers. Your own reports show your artwork.</sub>
+
 ## Requirements
 
 - macOS on Apple Silicon (tested on macOS 27), with the Music app
@@ -159,8 +164,17 @@ top song of each month, your biggest week/month) and a summary card. Scroll (or 
 to move between slides; "Skip to details" jumps to **the details**: every list, chart and heatmap in calm
 dark cards. Animations respect macOS's Reduce Motion setting.
 
+Weekly and monthly reports also have a **compared with last week/month** slide: more or less listening (in %),
+whether your #1 artist and song changed, your current listening streak (days in a row) and how many new
+artists you found. While a week or month is still in progress it compares with the same point of the previous
+one ("this time last week"), so a Tuesday isn't measured against a whole week.
+
+![The details: top songs, artists and albums](docs/screenshots/details.jpg)
+
 `music-wrapped home` opens a page with **this week so far** (covers, minutes, top song/artist/genre) and
 links to every report.
+
+![The home page](docs/screenshots/home.jpg)
 
 ## Story images
 
@@ -174,6 +188,12 @@ music-wrapped story monthly --current  # this month so far (default: last month)
 music-wrapped story yearly             # this year, Jan–Nov
 music-wrapped story alltime            # from your library's play counts
 ```
+
+<p>
+  <img src="docs/screenshots/story-minutes.jpg" width="31%" alt="Story image: minutes listened">
+  <img src="docs/screenshots/story-top-song.jpg" width="31%" alt="Story image: top song">
+  <img src="docs/screenshots/story-changes.jpg" width="31%" alt="Story image: compared with last week">
+</p>
 
 They're saved in `stories/<kind>/<period>/`. Cards are drawn with the system WebKit by a small Swift tool
 (`renderer/main.swift`, built by the installer or on first use) and use higher-resolution covers (640 px,
@@ -211,6 +231,9 @@ Songs without artwork, or streamed but not in your library, show their first let
   the track (or ran from its start to its end with at least half heard) are subtracted, and the rest of the increase becomes `source = 'other'` rows. Their time is the
   track's "last played" date (the exact times of several plays aren't known), and listening time is
   estimated as the track length. Skips can't be known for them.
+- **Real vs estimated minutes**: Mac minutes are what you actually heard (a song skipped after 1 minute adds
+  1 minute). Other-device plays add the full song length, so reports mark those times with **≈** and say how
+  many minutes are estimated. All-time hours are always play count × song length.
 - **iCloud backlogs**: iCloud sometimes delivers many old plays from other devices at once (e.g. +70 on one song).
   A real play always moves a song's "last played" date too, so an increase without a new last-played date is
   treated as old plays syncing in. It goes into all-time stats but isn't counted as this week's listening.

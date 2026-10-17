@@ -5,7 +5,8 @@ from datetime import date, datetime, timedelta
 
 Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid genre")
 # pid: a track to take the cover from (for artists/albums: their most-played track).
-Row = namedtuple("Row", "name sub plays seconds pid", defaults=(None,))
+# est: the part of `seconds` that is estimated (other-device plays count as the full track length).
+Row = namedtuple("Row", "name sub plays seconds pid est", defaults=(None, 0))
 
 
 def ts_of(d):
@@ -35,6 +36,12 @@ def hours(plays):
     return sum(p.seconds for p in plays) / 3600
 
 
+def estimated_hours(plays):
+    """Hours from other-device plays: the synced play count gives no listening time, so each one
+    counts as the full track length (Mac plays are timed live)."""
+    return sum(p.seconds for p in plays if p.source != "mac") / 3600
+
+
 def _rank(groups, pids, n):
     """Top n rows; each gets the pid of its most-played track (for artwork)."""
     keys = sorted(groups, key=lambda k: (-groups[k].plays, -groups[k].seconds, groups[k].name.lower()))[:n]
@@ -48,7 +55,8 @@ def _group(plays, keyfn, rowfn):
         if k is None:
             continue
         r = g.get(k) or rowfn(p)
-        g[k] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds)
+        g[k] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds,
+                          est=r.est + (p.seconds if p.source != "mac" else 0))
         if p.pid:
             pids[k][p.pid] += 1
     return g, pids
@@ -140,6 +148,19 @@ def longest_streak(plays):
             best = (length, run_start, d)
         prev = d
     return best
+
+
+def streak_until(con, last_day):
+    """Days in a row with at least one logged play, ending on last_day (or the day before, if
+    nothing was played on last_day yet): (days, first day, last day)."""
+    t = ts_of(last_day + timedelta(days=1))
+    days = {datetime.fromtimestamp(r[0]).date() for r in con.execute("SELECT ts FROM plays WHERE ts < ?", (t,))}
+    d = last_day if last_day in days else last_day - timedelta(days=1)
+    end = d
+    while d in days:
+        d -= timedelta(days=1)
+    n = (end - d).days
+    return (n, d + timedelta(days=1), end) if n else (0, None, None)
 
 
 def week_buckets(start, end):
