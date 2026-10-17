@@ -388,7 +388,7 @@ def write_index():
         print(f"home page header skipped: {ex}")
     html = R.page("Music Wrapped", "Music Wrapped", "All your Wrapped",
                   "Every report you've generated, newest first", [], feature + "".join(sections),
-                  "Rebuilt each time a report is generated. Open it with <b>music-wrapped home</b>.")
+                  "Rebuilt each time a report is generated. Open it with <b>music-wrapped home</b>.", home=True)
     paths.REPORTS.mkdir(parents=True, exist_ok=True)
     (paths.REPORTS / "index.html").write_text(artwork.inject(html), encoding="utf-8")
 

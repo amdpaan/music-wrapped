@@ -81,8 +81,10 @@ CSS = """
 .cols2 h3{font-size:clamp(12px,2.2vmin,32px);font-weight:900;letter-spacing:.1em;text-transform:uppercase;opacity:.75;margin-bottom:.5em}
 .cols2 p{font-size:clamp(15px,3.4vmin,46px);font-weight:800;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cols2 p em{font-style:normal;opacity:.6;margin-right:.35em}
-.mascot-xl{width:clamp(150px,34vmin,420px);aspect-ratio:16/10}
-.mascot-xl svg{width:100%;height:100%;shape-rendering:crispEdges;filter:drop-shadow(0 2vmin 3vmin rgba(0,0,0,.35))}
+.mascot-xl{display:block;width:clamp(150px,34vmin,420px);aspect-ratio:16/10}
+.mascot-xl svg{width:100%;height:100%;shape-rendering:crispEdges;filter:drop-shadow(0 2vmin 3vmin rgba(0,0,0,.35));
+  transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.mascot-xl:hover svg{transform:scale(1.06) rotate(-3deg)}
 .hint{position:absolute;bottom:clamp(16px,3vmin,40px);left:50%;transform:translateX(-50%);font-size:clamp(12px,2vmin,22px);
   font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.8;animation:nudge 1.8s ease-in-out infinite}
 @keyframes nudge{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,6px)}}
@@ -300,7 +302,7 @@ def intro(words, label, d):
 <div class="split">
   <div class="tx">
     {_rv(f'<div class="sk">{R.e(words["kicker"])}</div>')}
-    {_rv(f'<div class="mascot-xl">{R.MASCOT}</div>', 1)}
+    {_rv(f'<a class="mascot-xl" href="{R.THIS_WEEK}" title="Open this week’s Wrapped">{R.MASCOT}</a>', 1)}
     {_rv(f'<div class="sh">{R.e(words["title"])}</div>', 2)}
     {_rv(f'<div class="sm">{R.e(label)}</div>', 3)}
   </div>

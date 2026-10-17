@@ -29,8 +29,11 @@ body{background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacS
 main{max-width:1180px;margin:0 auto;position:relative;z-index:1}
 #bg{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
 .hero-wrap{position:relative;margin-top:40px}
-.mascot{position:absolute;right:56px;top:-48px;width:80px;height:50px;z-index:2;animation:bob 3.2s ease-in-out infinite}
-.mascot svg{display:block;width:100%;height:100%;shape-rendering:crispEdges;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45))}
+.mascot{position:absolute;right:56px;top:-48px;width:80px;height:50px;z-index:2;animation:bob 3.2s ease-in-out infinite;display:block}
+.mascot svg{display:block;width:100%;height:100%;shape-rendering:crispEdges;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45));
+  transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+a.mascot:hover svg,a.mascot:focus-visible svg{transform:scale(1.15) rotate(-6deg)}
+a.mascot:focus-visible{outline:2px solid #1ed760;outline-offset:6px;border-radius:8px}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 @media (prefers-reduced-motion:reduce){.mascot{animation:none}}
 .hero{border-radius:28px;padding:44px 36px;margin-bottom:20px;color:#fff;position:relative;overflow:hidden;
@@ -275,7 +278,12 @@ MASCOT = ('<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg">'
           + "</svg>")
 
 
-def page(title, kicker, heading, range_label, stats, body, footer, live=False, story="", story_css="", story_js=""):
+# Clicking the mascot opens this week's report. Reports live in reports/<kind>/, the home page in reports/.
+THIS_WEEK = "../weekly/latest.html"
+
+
+def page(title, kicker, heading, range_label, stats, body, footer, live=False, story="", story_css="", story_js="",
+         home=False):
     """story: slides shown first (full-screen reveals); the report's cards follow as "the details"."""
     tiles = "".join(f'<div class="stat"><b>{e(v)}</b><span>{e(k)}</span></div>' for k, v in stats)
     if story:
@@ -292,7 +300,8 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False, s
 <title>{e(title)}</title>
 <style>{CSS}{story_css}</style></head>
 <body><canvas id="bg" aria-hidden="true"></canvas>{story}<main id="details">
-<div class="hero-wrap"><div class="mascot" aria-hidden="true">{MASCOT}</div>
+<div class="hero-wrap"><a class="mascot" href="{"weekly/latest.html" if home else THIS_WEEK}" title="Open this week's Wrapped"
+  aria-label="Open this week's Wrapped">{MASCOT}</a>
 <section class="hero"><div class="kicker">{e(kicker)}</div><h1>{e(heading)}</h1>
 <div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section></div>
 <div class="grid">{body}</div>
