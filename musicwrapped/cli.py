@@ -207,6 +207,23 @@ def cmd_serve(a):
     return serve.run(a.port, a.hours, a.new_link)
 
 
+def cmd_previews(a):
+    from . import previews
+    if a.state in ("on", "off"):
+        previews.set_enabled(a.state == "on")
+    on = previews.enabled()
+    print(f"Song previews in Play story: {'on' if on else 'off'} (App Store country: {previews.store()})")
+    if on:
+        print("Reports now look up their top songs' 30-second previews with Apple's iTunes Search API\n"
+              "(only the song title and artist are sent; results are cached). Rebuilding this week's report…")
+        reports.save(*build(db.connect(), argparse.Namespace(kind="weekly", week=None, month=None, current=False,
+                                                             year=None, scheduled=False)))
+        print("Done. Open it and press ▶ Play story. Use 🔊/🔇 at the top to mute.")
+    else:
+        print("Turn on with: music-wrapped previews on")
+    return 0
+
+
 def cmd_update(a):
     from . import update
     return update.run(rebuild=a.rebuild, pull=not a.no_pull)
@@ -365,6 +382,10 @@ def main(argv=None):
     s.add_argument("--hours", type=float, default=2, help="stop by itself after this long (0 = never)")
     s.add_argument("--new-link", action="store_true", help="make a new secret link (the old one stops working)")
     s.set_defaults(fn=cmd_serve)
+
+    s = sub.add_parser("previews", help="song previews (30 s, from Apple) as Play story's soundtrack: on / off")
+    s.add_argument("state", nargs="?", choices=["on", "off", "status"], default="status")
+    s.set_defaults(fn=cmd_previews)
 
     s = sub.add_parser("update", help="get the latest version from GitHub and rebuild what changed")
     s.add_argument("--rebuild", action="store_true", help="rebuild the logger, renderer and app even if unchanged")

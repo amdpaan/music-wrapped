@@ -14,6 +14,8 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 - **Backs up your play history** every week: dated copies on your Mac, plus an optional private GitHub repo.
 - **Writes `summary.json`** (this week's hours, top artist, top song) for desktop widgets.
 
+<p align="center"><img src="docs/screenshots/play-story.gif" width="300" alt="Play story: the slides of a weekly report playing like Instagram stories"></p>
+
 ![The first slide of a weekly report](docs/screenshots/slides.jpg)
 
 <sub>Screenshots use the built-in demo (`music-wrapped demo`): made-up artists, and letters instead of album
@@ -99,6 +101,7 @@ music-wrapped home                         # page listing every report you've ge
 music-wrapped story                        # shareable 1080x1920 story images (this week)
 music-wrapped serve                        # open your reports on your iPhone over Wi-Fi (until Ctrl-C)
 music-wrapped update                       # get the latest version and rebuild what changed
+music-wrapped previews on                  # song previews as Play story's soundtrack (opt-in)
 
 music-wrapped status                       # what's logged, agents loaded, latest reports, health
 music-wrapped health                       # is anything broken? (exit code 1 if so)
@@ -187,10 +190,18 @@ and giant outlined words drift across the intro and summary. Behind every slide,
 morph shape (SVG path morphing, paused on slides you can't see), and in Play story each slide pours in like
 liquid from where you tapped. Everything stays still with macOS's Reduce Motion setting and in story images.
 
+Monthly, yearly and custom reports name your **listening personality**, from the habit that stands out most:
+The Loyalist (one artist takes over a third of your plays), On Repeat, The Explorer (lots of new artists),
+Night Owl, Early Bird, Weekend Warrior, Genre Hopper, Daily Devotee, or The All-Rounder when nothing
+dominates. The next strongest habits are listed as extra traits.
+
+The **yearly Wrapped** adds slides for your top 5 artists and top 5 albums, how many days you listened (and
+your first song of the year), your longest streak, biggest discovery, top song of each month and your biggest month.
+
 Every report also has **your records**: the longest listening session (back-to-back plays with breaks under
 10 minutes; Mac only, since only Mac plays have exact times) and the song you replayed most in a single day.
 
-![The details: top songs, artists and albums](docs/screenshots/details.jpg)
+![The details: listening personality and records](docs/screenshots/details.jpg)
 
 `music-wrapped home` opens a page with **this week so far** (covers, minutes, top song/artist/genre) and
 links to every report.
@@ -213,7 +224,7 @@ music-wrapped story alltime            # from your library's play counts
 <p>
   <img src="docs/screenshots/story-minutes.jpg" width="31%" alt="Story image: minutes listened">
   <img src="docs/screenshots/story-top-song.jpg" width="31%" alt="Story image: top song">
-  <img src="docs/screenshots/story-changes.jpg" width="31%" alt="Story image: compared with last week">
+  <img src="docs/screenshots/story-personality.jpg" width="31%" alt="Story image: listening personality">
 </p>
 
 They're saved in `stories/<kind>/<period>/`. Cards are drawn with the system WebKit by a small Swift tool
@@ -226,6 +237,19 @@ The installer adds **Music Wrapped** (with the cassette mascot as its icon) to `
 Launchpad, Spotlight or the Dock (drag it there to keep it) and it opens the reports home page in your browser:
 this week so far, plus every report. There's no need for Terminal or a desktop widget. The app is built on your
 Mac from `app/main.swift` by `tools/make-app.sh`, and re-running `./install.sh` updates it.
+
+## Song previews in Play story (optional)
+
+```sh
+music-wrapped previews on     # off by default; "off" turns it off again
+```
+
+With previews on, ▶ Play story has a soundtrack like real Wrapped: the 30-second Apple Music preview of your top
+song plays on its slide, your top artist's best song on theirs, and so on, with a 🔊/🔇 button (remembered) and
+the song's name at the top. To find the previews, building a report sends each top song's **title and artist**
+to Apple's public iTunes Search API (no account or key; your App Store country comes from your Mac's region).
+Results are cached in `previews.json`, so rebuilds normally make no requests. Songs without a preview, or that
+don't match exactly, are simply skipped; it never plays a different song.
 
 ## On your iPhone
 
@@ -313,6 +337,7 @@ Everything personal lives outside the repo, in `$HOME/Library/Application Suppor
 ```
 plays.db              SQLite: plays (every play, kept forever), library (all-time stats), snapshots (log)
 summary.json          widget summary, rewritten after every play and report
+previews.json         cached preview links for Play story (only with `previews on`)
 pending.json          song in progress while the logger restarts (usually absent)
 heartbeat.json        when the logger last saw Music playing (health check)
 health.txt            details of the last failed health check

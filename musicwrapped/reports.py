@@ -91,6 +91,19 @@ def records_cards(plays):
     return out
 
 
+def personality_for(con, plays, start, end):
+    days = max(1, (min(end, date.today() + timedelta(days=1)) - start).days)
+    return S.personality(plays, len(S.new_artists(con, plays, start, 10_000)), days)
+
+
+def personality_card(p):
+    if not p:
+        return ""
+    name, desc, traits = p
+    return R.card("Listening personality", R.headline(name, desc + (f" Also: {', '.join(traits)}." if traits else "")),
+                  "orange", note="From the habits that stood out most", badge=ALL_DEVICES)
+
+
 def _records_slide(plays):
     return ("records", SL.records(S.longest_session(plays), S.most_replayed_day(plays)))
 
@@ -212,11 +225,13 @@ def monthly(con, y, m, so_far=False, slides_only=False):
     if d:
         d["prev_label"] = cmp_label
     weeks = [(lab, h) for lab, h, _ in week_bars(plays, start, q_end)]
+    persona = personality_for(con, plays, start, q_end)
     wd = SL.words("monthly", calendar.month_name[m])
     sl = SL.build(d, wd, fmt_range(start, q_end), [
         ("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}")),
         ("changes", SL.changes(d, wd, prev, S.streak_until(con, q_end - timedelta(days=1)),
                                len(S.new_artists(con, plays, start)))),
+        ("personality", SL.personality(persona)),
         _records_slide(plays),
     ]) if d else []
     if slides_only:
@@ -227,6 +242,7 @@ def monthly(con, y, m, so_far=False, slides_only=False):
                      note="Listening hours in each week of the month (weeks start Monday)", badge=ALL_DEVICES, wide=True)
             + R.card("How your top artists moved", artist_changes(plays, start, q_end), "dark",
                      note="Your month's top 5 artists, ranked week by week", badge=ALL_DEVICES, wide=True)
+            + personality_card(persona)
             + records_cards(plays))
     html = R.page(f"Wrapped {title}", "Your month in music" + (" · so far" if so_far else ""), title,
                   fmt_range(start, q_end), hero_stats(plays, (f"vs {cmp_label}", _pct(S.hours(plays), pc))), body,
@@ -255,12 +271,18 @@ def yearly(con, y, slides_only=False):
         month_hours.append((calendar.month_abbr[m], hh, f"{calendar.month_name[m]}: {hh:.1f} h · {R.fmt_plays(len(mp))}"))
 
     d = SL.data_for(con, "yearly", plays, None, start, q_end)
+    persona = personality_for(con, plays, start, q_end)
+    days_total = max(1, (q_end - start).days)
     sl = SL.build(d, SL.words("yearly", str(y)), fmt_range(start, q_end), [
+        ("top-artists", SL.ranked_list("Your top artists", S.top_artists(plays, 5), "pink", f"plays in {y}", round_=True)),
+        ("top-albums", SL.ranked_list("Your top albums", S.top_albums(plays, 5), "blue", f"plays in {y}")),
+        ("days", SL.days_slide(len({p.dt.date() for p in plays}), days_total, S.first_play(plays), y)),
         ("streak", SL.streak(streak, s_from, s_to)),
         ("discovery", SL.discovery(disc[0] if disc else None)),
         ("months", SL.months_grid(month_items)),
         ("best-month", SL.best_bucket("Your biggest month", [(m, h) for m, h, _ in month_hours],
                                       lambda m: calendar.month_name[list(calendar.month_abbr).index(m)])),
+        ("personality", SL.personality(persona)),
         _records_slide(plays),
     ]) if d else []
     if slides_only:
@@ -278,6 +300,7 @@ def yearly(con, y, slides_only=False):
             + genres_card(plays, 5)
             + R.card("Top song of each month", R.months(month_items), "blue", badge=ALL_DEVICES, wide=True)
             + R.card("Hours per month", R.bars(month_hours), "dark", badge=ALL_DEVICES, wide=True)
+            + personality_card(persona)
             + records_cards(plays))
     html = R.page(f"Wrapped {y}", f"{y} Wrapped · January to November", f"Your {y}, Wrapped",
                   fmt_range(start, q_end), hero_stats(plays), body, footer(con),
@@ -331,15 +354,18 @@ def custom(con, start, end_incl, label=None, slides_only=False):
             + R.card("New artists", R.simple_list(new, "No new artists in this period."), "yellow", badge=ALL_DEVICES)
             + R.card("On repeat", R.simple_list(repeat, "No song hit 5 plays."), "teal", note="Songs with 5+ plays")
             + R.card("Most skipped", R.simple_list(skipped, "No skips logged."), "blue", badge=MAC_ONLY)
+            + personality_card(persona)
             + records_cards(plays))
     slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-") if label else ""
     name = f"{start}_to_{end_incl}" + (f"_{slug}" if slug else "")
     d = SL.data_for(con, "custom", plays, None, start, end)
+    persona = personality_for(con, plays, start, end)
     weeks = [(lab, h) for lab, h, _ in week_bars(plays, start, end)]
     sl = SL.build(d, SL.words("custom", label), fmt_range(start, end), [
         ("peak", SL.peak(d, None)),
         ("streak", SL.streak(streak, s_from, s_to)),
         ("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}")),
+        ("personality", SL.personality(persona)),
         _records_slide(plays),
     ]) if d else []
     if slides_only:

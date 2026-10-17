@@ -165,6 +165,13 @@ html.playing .pbars{display:flex;position:fixed;z-index:31;left:clamp(14px,2.4vm
 html.playing .pclose{display:block;position:fixed;z-index:32;right:clamp(14px,2.4vmin,34px);top:calc(env(safe-area-inset-top,0px) + 26px);
   width:36px;height:36px;border-radius:50%;border:0;background:rgba(0,0,0,.35);color:#fff;font-size:17px;font-weight:800;cursor:pointer}
 html.playing.paused .pbars{opacity:.55}
+.psound,.psong{display:none}
+html.playing.has-sound .psound{display:block;position:fixed;z-index:32;right:calc(clamp(14px,2.4vmin,34px) + 46px);
+  top:calc(env(safe-area-inset-top,0px) + 26px);width:36px;height:36px;border-radius:50%;border:0;background:rgba(0,0,0,.35);
+  color:#fff;font-size:16px;cursor:pointer}
+html.playing.has-sound.sound-on .psong{display:block;position:fixed;z-index:31;left:clamp(14px,2.4vmin,34px);
+  top:calc(env(safe-area-inset-top,0px) + 30px);max-width:60vw;font-size:12px;font-weight:800;color:#fff;
+  background:rgba(0,0,0,.35);padding:6px 11px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (min-aspect-ratio:5/4){
   .split{flex-direction:row;align-items:center}
   .big-cover{width:min(56vh,520px);height:min(56vh,520px);font-size:min(22vh,220px)}
@@ -310,6 +317,50 @@ PLAY_JS = r"""<script>
   var close = document.createElement("button");
   close.className = "pclose"; close.type = "button"; close.textContent = "✕"; close.setAttribute("aria-label", "Close the story");
   document.body.appendChild(bars); document.body.appendChild(close);
+  // Soundtrack (opt-in when the report was built): slides with data-preview start that song's
+  // 30-second Apple Music preview; it keeps playing across slides without one. 🔊/🔇 is remembered.
+  var hasSound = slides.some(function (s) { return s.getAttribute("data-preview"); });
+  var au = null, song = "", fadeT = 0, soundOn = true;
+  try { soundOn = localStorage.getItem("mw-sound") !== "off"; } catch (e) {}
+  var sbtn = document.createElement("button"), slabel = document.createElement("div");
+  sbtn.className = "psound"; sbtn.type = "button"; slabel.className = "psong";
+  document.body.appendChild(sbtn); document.body.appendChild(slabel);
+  if (hasSound) root.classList.add("has-sound");
+  function soundUI() {
+    sbtn.textContent = soundOn ? "🔊" : "🔇";
+    sbtn.setAttribute("aria-label", soundOn ? "Mute the music" : "Play the music");
+    root.classList.toggle("sound-on", soundOn);
+  }
+  soundUI();
+  function fade(to, then) {   // volume fades work on a Mac; iOS ignores volume, so it just switches
+    clearInterval(fadeT);
+    fadeT = setInterval(function () {
+      var v = au.volume + (to > au.volume ? 0.1 : -0.1);
+      if (Math.abs(to - au.volume) <= 0.1) { au.volume = to; clearInterval(fadeT); if (then) then(); }
+      else au.volume = Math.max(0, Math.min(1, v));
+    }, 30);
+  }
+  function music(slide) {
+    if (!hasSound) return;
+    var url = slide && slide.getAttribute("data-preview");
+    if (url && url !== song) {
+      song = url;
+      slabel.textContent = "♪ " + (slide.getAttribute("data-song") || "");
+      if (!au) { au = new Audio(); au.loop = true; au.preload = "auto"; }
+      var go = function () { au.src = url; au.volume = 0; if (soundOn && on && !paused) { au.play().catch(function () {}); fade(1); } };
+      if (au.src && !au.paused) fade(0, go); else go();
+    } else if (au && soundOn && on && !paused && au.paused && song) {
+      au.play().catch(function () {});
+    }
+  }
+  sbtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    soundOn = !soundOn;
+    try { localStorage.setItem("mw-sound", soundOn ? "on" : "off"); } catch (x) {}
+    soundUI();
+    if (!au && soundOn) music(slides[i]);
+    else if (au) { if (soundOn) { au.play().catch(function () {}); fade(1); } else au.pause(); }
+  });
   var fmt = window.Intl ? new Intl.NumberFormat() : null;
   function countUp(el) {
     var to = +el.getAttribute("data-count"), s0 = null;
@@ -344,6 +395,7 @@ PLAY_JS = r"""<script>
     if (window.mwEnter) window.mwEnter(s);
     void s.offsetWidth;
     s.classList.add("in", "pour");   // replay the reveal, poured in like liquid
+    music(s);
     [].forEach.call(s.querySelectorAll("[data-count]"), countUp);
     elapsed = 0; t0 = performance.now();
   }
@@ -361,6 +413,7 @@ PLAY_JS = r"""<script>
     var now = performance.now();
     if (yes) elapsed += now - t0; else t0 = now;
     paused = yes;
+    if (au && song) { if (yes) au.pause(); else if (soundOn) au.play().catch(function () {}); }
     root.classList.toggle("paused", yes);
   }
   function start(n) {
@@ -374,6 +427,7 @@ PLAY_JS = r"""<script>
   function stop(toDetails) {
     if (!on) return;
     on = false;
+    if (au) au.pause();
     root.classList.remove("playing", "paused");
     slides.forEach(function (s) { s.classList.remove("cur", "prev", "pour"); });
     history.replaceState(null, "", location.pathname + location.search);
@@ -383,7 +437,7 @@ PLAY_JS = r"""<script>
   if (btn) btn.addEventListener("click", function (e) { e.preventDefault(); start(0); });
   close.addEventListener("click", function (e) { e.stopPropagation(); stop(false); });
   document.addEventListener("pointerdown", function (e) {
-    if (!on || e.target === close || (e.target.closest && e.target.closest("a"))) return;
+    if (!on || e.target === close || e.target === sbtn || (e.target.closest && e.target.closest("a"))) return;
     down = performance.now(); downX = e.clientX;
     pause(true);
   });
@@ -531,14 +585,21 @@ def data_for(con, kind, plays=None, prev=None, start=None, end=None):
         if not lib["plays"]:
             return None
         songs = S.library_top(con, "songs", 9)
-        return {"minutes": round(lib["hours"] * 60), "plays": lib["plays"], "artists_n": lib["artists"],
+        artists = S.library_top(con, "artists", 5)
+        best = con.execute("SELECT title, artist FROM library WHERE in_library = 1 AND artist = ? "
+                           "ORDER BY play_count DESC LIMIT 1", (artists[0].name,)).fetchone() if artists else None
+        return {"artist_song": tuple(best) if best else None,
+                "minutes": round(lib["hours"] * 60), "plays": lib["plays"], "artists_n": lib["artists"],
                 "songs": songs[:5], "mosaic": songs, "artists": S.library_top(con, "artists", 5),
                 "genres": S.library_top(con, "genres", 5),
                 "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000)), "all_estimated": True}
     if not plays:
         return None
     songs = S.top_songs(plays, 9)
-    d = {"minutes": round(S.hours(plays) * 60), "plays": len(plays), "artists_n": len({p.artist for p in plays}),
+    top_a = S.top_artists(plays, 1)
+    by_artist = S.top_songs([p for p in plays if top_a and p.artist == top_a[0].name], 1)
+    d = {"artist_song": (by_artist[0].name, by_artist[0].sub) if by_artist else None,
+         "minutes": round(S.hours(plays) * 60), "plays": len(plays), "artists_n": len({p.artist for p in plays}),
          "songs": songs[:5], "mosaic": songs, "artists": S.top_artists(plays, 5), "genres": S.top_genres(plays, 5),
          "genre_total": sum(1 for p in plays if p.genre), "est_minutes": round(S.estimated_hours(plays) * 60),
          "minutes_x": S.hours(plays) * 60}
@@ -674,6 +735,49 @@ def top_artist(d, words):
     {_rv(f'<div class="ss">#1 of {plural(d["artists_n"], "artist")} {R.e(words["span"])}</div>', 4)}
   </div>
 </div>""")
+
+
+def ranked_list(kicker, rows, color, foot="", round_=False, value=lambda r: f"{r.plays:,}"):
+    """A top-5 list slide (songs, artists or albums) with covers."""
+    if not rows:
+        return ""
+    items = "".join(_rv(f'<li><span class="n">{i}</span>{R.cover(r.pid, r.name, round_, big=True)}<span class="t"><b>{R.e(r.name)}</b>'
+                        + (f'<span>{R.e(r.sub)}</span>' if r.sub else "") + f'</span><span class="v">{value(r)}</span></li>', i)
+                    for i, r in enumerate(rows[:5], 1))
+    return _panel(color, f"""
+{_rv(f'<div class="sk">{R.e(kicker)}</div>')}
+<ol class="sl">{items}</ol>
+{_rv(f'<div class="ss">{R.e(foot)}</div>', 6) if foot else ""}""")
+
+
+def personality(p):
+    """p: stats.personality() -> (name, description, traits)."""
+    if not p:
+        return ""
+    name, desc, traits = p
+    chips = "".join(f'<span class="chip">{R.e(t)}</span> ' for t in traits)
+    return _panel("orange", f"""
+{_rv('<div class="sk">Your listening personality</div>')}
+{_rv(f'<div class="sh" style="font-size:clamp(40px,{_fit(name, ((12, 13), (16, 11), (22, 9)))}vmin,170px)">{R.e(name)}</div>', 1)}
+{_rv(f'<div class="sm">{R.e(desc)}</div>', 2)}
+{_rv(f'<div class="ss">Also: {chips}</div>', 3) if chips else ""}""")
+
+
+def days_slide(days, total, first, year):
+    """Days with music this year, and the first song of the year. first: a stats.Play or None."""
+    if not days:
+        return ""
+    row = ""
+    if first:
+        row = _rv(f'<div class="ss" style="margin-top:2vmin">Your first song of {year}</div>'
+                  f'<ol class="sl"><li>{R.cover(first.pid, first.title, big=True)}<span class="t"><b>{R.e(first.title)}</b>'
+                  f'<span>{R.e(first.artist)} · {first.dt:%-d %b, %H:%M}</span></span></li></ol>', 4)
+    return _panel("teal", f"""
+{_rv('<div class="sk">Days with music</div>')}
+{_rv(_num(days, 34, 380), 1)}
+{_rv(f'<div class="sh" style="font-size:clamp(30px,7vmin,110px)">of {total} days</div>', 2)}
+{_rv(f'<div class="sm">You listened on {days / total * 100:.0f}% of the days {"so far " if total < 334 else ""}this year.</div>', 3)}
+{row}""")
 
 
 def top_songs(d, words):
@@ -877,4 +981,25 @@ def build(d, words, label, extra=()):
     parts = [("intro", intro(words, label, d)), ("minutes", minutes(d, words)), ("top-song", top_song(d, words)),
              ("top-artist", top_artist(d, words)), ("top-songs", top_songs(d, words)),
              ("top-genre", top_genre(d, words)), *extra, ("summary", summary(d, words))]
-    return [(n, h) for n, h in parts if h]
+    parts = [(n, h) for n, h in parts if h]
+    return soundtrack(parts, d)
+
+
+def soundtrack(parts, d):
+    """Play story's music (opt-in, see previews.py): which song's preview starts on which slide.
+    Slides without one keep the song that's already playing."""
+    from . import previews
+    songs = [(r.name, r.sub) for r in d.get("songs", [])]
+    if not songs or not previews.enabled():
+        return parts
+    plan = {"intro": songs[0], "top-song": songs[0], "top-artist": d.get("artist_song") or songs[0],
+            "top-songs": songs[min(1, len(songs) - 1)], "top-genre": songs[min(2, len(songs) - 1)], "summary": songs[0]}
+    urls = previews.for_songs(list(plan.values()))
+    out = []
+    for name, html in parts:
+        url = urls.get(plan.get(name))
+        if url:
+            html = html.replace('<section class="slide ', f'<section data-preview="{R.e(url)}" '
+                                f'data-song="{R.e(plan[name][0])} · {R.e(plan[name][1])}" class="slide ', 1)
+        out.append((name, html))
+    return out

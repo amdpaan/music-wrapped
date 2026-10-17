@@ -289,3 +289,66 @@ def logged_totals(con):
                        SUM(source='mac'), SUM(source='other') FROM plays""").fetchone()
     return {"plays": r[0], "hours": r[1] / 3600, "since": datetime.fromtimestamp(r[2]) if r[2] else None,
             "mac": r[3] or 0, "other": r[4] or 0}
+
+
+# ---------- listening personality ----------
+
+PERSONALITIES = {
+    # name: (one-line description template, trait label)
+    "The Loyalist": ("{pct}% of your plays were {artist}. You know what you like.", "loyal to {artist}"),
+    "On Repeat": ("You played {song} {n} times. Some songs are worth hearing again and again.", "replayer"),
+    "The Explorer": ("{n} artists were new to you. Always looking for the next favourite.", "explorer"),
+    "Night Owl": ("{pct}% of your listening happened between 10 pm and 4 am.", "night owl"),
+    "Early Bird": ("{pct}% of your listening happened between 5 and 9 am.", "early bird"),
+    "Weekend Warrior": ("{pct}% of your listening happened on Saturdays and Sundays.", "weekend listener"),
+    "Genre Hopper": ("{n} genres, and none of them more than a third of your plays.", "genre hopper"),
+    "Daily Devotee": ("Music on {n} of {days} days. It's part of your routine.", "every day"),
+    "The All-Rounder": ("A bit of everything, any time of day. No single habit runs your listening.", "all-rounder"),
+}
+
+
+def personality(plays, new_artist_count=0, days_in_period=7):
+    """(name, description, [other traits]) from the habits that stand out most, or None without plays.
+    Each habit gets a score: how far it is past its threshold (1.0 = exactly at it). The highest one
+    names you; the next two that also pass are shown as traits. Time-of-day habits use Mac plays only."""
+    if len(plays) < 5:
+        return None
+    n = len(plays)
+    cands = []
+    top_a = top_artists(plays, 1)[0]
+    share = top_a.plays / n
+    cands.append((share / 0.35, "The Loyalist", {"pct": round(share * 100), "artist": top_a.name}))
+    top_s = top_songs(plays, 1)[0]
+    cands.append((top_s.plays / max(8, n * 0.15), "On Repeat", {"song": top_s.name, "n": top_s.plays}))
+    artists = len({p.artist for p in plays})
+    if new_artist_count:
+        cands.append((min(new_artist_count / 5, new_artist_count / max(1, artists) / 0.3), "The Explorer", {"n": new_artist_count}))
+    mac = [p for p in plays if p.source == "mac"]
+    secs = sum(p.seconds for p in mac) or 1
+    if len(mac) >= 5:
+        night = sum(p.seconds for p in mac if p.dt.hour >= 22 or p.dt.hour < 4) / secs
+        early = sum(p.seconds for p in mac if 5 <= p.dt.hour < 9) / secs
+        cands.append((night / 0.4, "Night Owl", {"pct": round(night * 100)}))
+        cands.append((early / 0.35, "Early Bird", {"pct": round(early * 100)}))
+    weekend = sum(p.seconds for p in plays if p.dt.weekday() >= 5) / (sum(p.seconds for p in plays) or 1)
+    if days_in_period >= 7:
+        cands.append((weekend / 0.5, "Weekend Warrior", {"pct": round(weekend * 100)}))
+    genres = top_genres(plays, 10_000)
+    known = sum(r.plays for r in genres)
+    if known:
+        cands.append((min(len(genres) / 6, (1 / 3) / (genres[0].plays / known)), "Genre Hopper", {"n": len(genres)}))
+    days = len({p.dt.date() for p in plays})
+    if days_in_period >= 7:
+        cands.append(((days / days_in_period) / 0.85, "Daily Devotee", {"n": days, "days": days_in_period}))
+    cands.sort(key=lambda c: -c[0])
+    passing = [c for c in cands if c[0] >= 1]
+    if not passing:
+        return "The All-Rounder", PERSONALITIES["The All-Rounder"][0], []
+    score, name, vals = passing[0]
+    traits = [PERSONALITIES[nm][1].format(**v) for _, nm, v in passing[1:3]]
+    return name, PERSONALITIES[name][0].format(**vals), traits
+
+
+def first_play(plays):
+    """The first logged play of a period (for the yearly Wrapped), or None."""
+    return min(plays, key=lambda p: p.ts) if plays else None
