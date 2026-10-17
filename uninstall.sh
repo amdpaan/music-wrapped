@@ -8,6 +8,7 @@ for l in logger hourly snapshot weekly monthly yearly; do
   rm -f "$HOME/Library/LaunchAgents/com.musicwrapped.$l.plist"
 done
 rm -f "$HOME/.local/bin/music-wrapped" "$SUPPORT/bin/music-wrapped-logger"
+rm -rf "$HOME/Applications/Music Wrapped.app"
 if [ "${1:-}" = "--purge" ]; then
   rm -rf "$SUPPORT"
   security delete-identity -c "music-wrapped logger (local)" >/dev/null 2>&1 || true

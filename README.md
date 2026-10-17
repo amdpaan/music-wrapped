@@ -37,7 +37,7 @@ The installer:
 1. Builds the logger (`logger/main.swift`) into `$HOME/Library/Application Support/music-wrapped/bin/` and signs it
    with a local certificate (see below).
 2. Installs `terminal-notifier` with Homebrew, if it's missing.
-3. Links the `music-wrapped` command into `$HOME/.local/bin`.
+3. Adds **Music Wrapped.app** to `$HOME/Applications` and links the `music-wrapped` command into `$HOME/.local/bin`.
 4. Installs six launchd agents in `$HOME/Library/LaunchAgents`:
 
    | Agent | When | What |
@@ -199,6 +199,13 @@ music-wrapped story alltime            # from your library's play counts
 They're saved in `stories/<kind>/<period>/`. Cards are drawn with the system WebKit by a small Swift tool
 (`renderer/main.swift`, built by the installer or on first use) and use higher-resolution covers (640 px,
 cached in `artwork/640/`).
+
+## The Music Wrapped app
+
+The installer adds **Music Wrapped** (with the cassette mascot as its icon) to `~/Applications`. Open it from
+Launchpad, Spotlight or the Dock (drag it there to keep it) and it opens the reports home page in your browser:
+this week so far, plus every report. There's no need for Terminal or a desktop widget. The app is built on your
+Mac from `app/main.swift` by `tools/make-app.sh`, and re-running `./install.sh` updates it.
 
 ## On your iPhone
 

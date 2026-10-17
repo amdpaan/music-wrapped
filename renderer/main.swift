@@ -48,6 +48,7 @@ final class Renderer: NSObject, WKNavigationDelegate {
         view = WKWebView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         super.init()
         view.navigationDelegate = self
+        view.setValue(false, forKey: "drawsBackground")   // transparent pages stay transparent (the app icon)
         // A window that's never shown, so WebKit lays out and paints at the right size.
         let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = view

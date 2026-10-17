@@ -34,6 +34,10 @@ if ! command -v terminal-notifier >/dev/null 2>&1 && [ ! -x /opt/homebrew/bin/te
   fi
 fi
 
+say "Adding Music Wrapped.app to ~/Applications (opens your reports; keep it in the Dock)"
+"$REPO/tools/make-app.sh" "$SUPPORT/bin/music-wrapped-render" "$HOME/Applications" >/dev/null \
+  || echo "  Couldn't build the app; open your reports with: music-wrapped home"
+
 say "Linking the music-wrapped command into ~/.local/bin"
 mkdir -p "$HOME/.local/bin"
 ln -sf "$CLI" "$HOME/.local/bin/music-wrapped"
@@ -100,5 +104,5 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *)
   echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc && source ~/.zshrc" ;;
 esac
 echo
-echo "Done. Try: music-wrapped report weekly"
+echo "Done. Open \"Music Wrapped\" from Launchpad or ~/Applications, or try: music-wrapped report weekly"
 echo "Back up your plays to a private GitHub repo (optional): music-wrapped backup --setup-github"
