@@ -110,19 +110,26 @@ class LoggerTest(unittest.TestCase):
         self.assertTrue((Path(self.home) / "heartbeat.json").exists())
 
     def test_pauses_excluded_and_duplicates_dont_split(self):
+        # Each post launches a process, which can take a second on a slow machine (CI), so the check
+        # is relative to the measured wall-clock time rather than an exact number: the 4 s pause
+        # must be missing from it, and the ~3.5 s of playing must be there.
         self.start()
+        t0 = time.time()
         self.post("Playing", A, seconds=20)
         time.sleep(1.5)
         self.post("Paused", A, seconds=20)
-        time.sleep(2)                    # paused time must not count
+        time.sleep(4)                    # paused time must not count
         self.post("Playing", A, seconds=20)
         time.sleep(1)
         self.post("Playing", A, seconds=20)  # duplicate event Music sometimes sends
         time.sleep(1)
         self.post("Stopped")
+        wall = time.time() - t0
         rows = self.rows()
         self.assertEqual(len(rows), 1)
-        self.assertAlmostEqual(rows[0]["seconds_listened"], 3.5, delta=1)
+        listened = rows[0]["seconds_listened"]
+        self.assertGreaterEqual(listened, 2.5)
+        self.assertLessEqual(listened, wall - 3, f"pause counted? listened {listened:.1f} s of {wall:.1f} s")
 
     def test_repeat_of_same_track_is_two_plays(self):
         self.start()
