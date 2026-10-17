@@ -47,7 +47,7 @@ The installer:
    | Agent | When | What |
    |---|---|---|
    | `com.musicwrapped.logger` | at login, kept alive | logs Mac plays |
-   | `com.musicwrapped.hourly` | every hour, only while Music is open | quick snapshot, so iPhone plays show up within an hour (never launches Music) |
+   | `com.musicwrapped.hourly` | every 5 minutes, only while Music is open | quick snapshot (about 0.3 s), so iPhone plays show up within minutes of syncing (never launches Music). The name is from when it ran hourly |
    | `com.musicwrapped.snapshot` | daily 12:00 | play-count snapshot (launches Music hidden if needed) + health check |
    | `com.musicwrapped.weekly` | Monday 00:05 | last week's report + all-time refresh + backup |
    | `com.musicwrapped.monthly` | 1st of the month, 09:00 | last month's report |
@@ -113,10 +113,12 @@ music-wrapped doctor                       # check that Music's notifications ar
 music-wrapped demo                         # preview every report with fake data
 ```
 
-**This week's report is live.** After every logged play, the logger rebuilds `weekly/latest.html` in the
-background (about 0.05 s, no library snapshot, never starts Music), and an open tab of a week in progress
-reloads itself every minute, keeping your scroll position. Plays from other devices arrive with the
-hourly snapshot (while Music is open) or the daily one. Other reports are fixed snapshots: re-run the command to update them.
+**This week's report is live.** A song on your Mac counts as soon as you've heard 30 seconds of it (its
+final listening time and skip flag are filled in when it ends; still one play). The logger then rebuilds
+`weekly/latest.html` and the home page in the background (no library snapshot, never starts Music), and
+open tabs notice within about 5 seconds and reload, keeping your scroll position (never in the middle of
+Play story). Plays from other devices arrive with the 5-minute snapshot (while Music is open) or the daily
+one, as soon as iCloud has synced them to the Mac. Other reports are fixed snapshots: re-run the command to update them.
 
 Every report command takes a library snapshot first (skip it with `--no-snapshot`) and opens the result
 in your browser (skip with `--no-open`). Scheduled runs only send a notification; clicking it opens the report.
@@ -303,7 +305,8 @@ Songs without artwork, or streamed but not in your library, show their first let
   `pending.json`, not logged. On start, the logger asks Music what's playing. If it's the same song (within
   10 minutes), it carries on with the same play, so one listen is never logged twice. Otherwise the saved
   song is logged and the current one is tracked from that moment.
-- **Mac plays**: a play counts after **30 s** of actual listening (pauses and sleep don't count). It's
+- **Mac plays**: a play counts after **30 s** of actual listening (pauses and sleep don't count), and is
+  recorded at that moment; when the song ends, the same row gets its final listening time. It's
   marked **skipped** if it stopped before 50% of the track. Each play is one row: timestamp, title, artist,
   album, duration, seconds listened, skipped and `source = 'mac'`.
 - **Other devices**: each snapshot compares every track's library play count with the previous snapshot.
@@ -321,6 +324,9 @@ Songs without artwork, or streamed but not in your library, show their first let
   treated as old plays syncing in. It goes into all-time stats but isn't counted as this week's listening.
   If an increase is larger than could fit in the time since the last snapshot, at most one play is counted,
   and only if a Mac play doesn't explain the new last-played date.
+  "Recent" always means at least the last hour, however often snapshots run, because iCloud can take a
+  while to sync. And when a Mac song ends just before a snapshot, Music may bump its play count just after
+  it: if that Mac play explains the song's new last-played date, the increase isn't counted again.
 - **All-time** reports use the library play counts directly, the true total across all devices.
 - **Date-range** reports (weekly, monthly, yearly, custom) add up the logged rows in that range,
   so 3 plays one week + 5 the next = 8 in that month. Nothing is counted twice.

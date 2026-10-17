@@ -171,8 +171,11 @@ def fmt_plays(n):
     return f"{n:,} play" + ("" if n == 1 else "s")
 
 
-# Reloads the page every minute while it's visible, keeping the scroll position. Used for a
-# week in progress, whose file the logger rebuilds after every play.
+# Live pages (this week's report, the home page): every 5 s the page loads its tiny <name>.version.js,
+# which reports.save() rewrites with each rebuild; when the version differs from the page's own, it
+# reloads, keeping the scroll position. A <script> tag works for local files, where fetch() doesn't.
+# It waits while a story is playing or a table is open. Without the version file (older reports),
+# it falls back to reloading every minute.
 LIVE_JS = """<script>
 (function () {
   var KEY = "mw-scroll:" + location.pathname;
@@ -184,12 +187,31 @@ LIVE_JS = """<script>
       sessionStorage.removeItem(KEY);
     }
   } catch (e) {}
-  setInterval(function () {
-    if (document.hidden || document.querySelector("details[open]") ||
-        document.documentElement.classList.contains("playing")) return;   // never interrupt a story
+  var mine = "__MW_STAMP__", file = "__MW_VFILE__", stale = false, misses = 0, ticks = 0;
+  function busy() {
+    return document.hidden || document.querySelector("details[open]") ||
+           document.documentElement.classList.contains("playing");   // never interrupt a story
+  }
+  function reload() {
+    if (busy()) { stale = true; return; }
     try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
     location.reload();
-  }, 60000);
+  }
+  window.__mwVersion = function (v) { misses = 0; if (v && v !== mine) reload(); };
+  function check() {
+    var s = document.createElement("script");
+    s.src = file + "?t=" + Date.now();
+    s.onload = function () { s.remove(); };
+    s.onerror = function () { s.remove(); misses++; };
+    document.head.appendChild(s);
+  }
+  setInterval(function () {
+    ticks++;
+    if (stale) return reload();
+    if (document.hidden) return;
+    if (misses > 2 || file.indexOf("__MW") === 0) { if (ticks % 12 === 0) reload(); return; }   // old-style: every minute
+    check();
+  }, 5000);
 })();
 </script>"""
 
@@ -285,6 +307,14 @@ MASCOT = ('<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg">'
 THIS_WEEK = "../weekly/latest.html"
 
 
+def stamp_live(html, version_file):
+    """Fills in a live page's version (see LIVE_JS). Returns (html, the version.js content)."""
+    import time
+    v = str(time.time_ns())
+    return (html.replace("__MW_STAMP__", v).replace("__MW_VFILE__", version_file),
+            f'window.__mwVersion && window.__mwVersion("{v}");\n')
+
+
 def page(title, kicker, heading, range_label, stats, body, footer, live=False, story="", story_css="", story_js="",
          home=False):
     """story: slides shown first (full-screen reveals); the report's cards follow as "the details"."""
@@ -296,7 +326,7 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False, s
         story_css = "html{scroll-snap-type:y proximity}" + story_css
     if live:
         kicker = f"{kicker} · live"
-        footer = f"{footer} This page updates after every play and refreshes itself every minute.".strip()
+        footer = f"{footer} This page updates itself within seconds of every play.".strip()
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

@@ -387,8 +387,11 @@ def save(kind, name, html):
         html = html.replace("<!--story-images-->", (
             f'<a class="story-link" hidden href="../../stories/{kind}/{name}/">Story images ↗</a>'
             '<script>if (/^https?:/.test(location.protocol)) document.querySelector(".story-link").hidden = false</script>'), 1)
+    html, version = R.stamp_live(html, f"{name}.version.js")
     out.write_text(artwork.inject(html), encoding="utf-8")
     shutil.copyfile(out, folder / "latest.html")
+    if "__mwVersion" in html:   # a live page: tell open tabs it changed (after the page itself is written)
+        (folder / f"{name}.version.js").write_text(version, encoding="utf-8")
     write_index()
     return out
 
@@ -450,9 +453,11 @@ def write_index():
         print(f"home page header skipped: {ex}")
     html = R.page("Music Wrapped", "Music Wrapped", "All your Wrapped",
                   "Every report you've generated, newest first", [], feature + "".join(sections),
-                  "Rebuilt each time a report is generated. Open it with <b>music-wrapped home</b>.", home=True)
+                  "Rebuilt with every play and report. Open it with <b>music-wrapped home</b>.", home=True, live=True)
     paths.REPORTS.mkdir(parents=True, exist_ok=True)
+    html, version = R.stamp_live(html, "index.version.js")
     (paths.REPORTS / "index.html").write_text(artwork.inject(html), encoding="utf-8")
+    (paths.REPORTS / "index.version.js").write_text(version, encoding="utf-8")
 
 
 def latest(kind=None):

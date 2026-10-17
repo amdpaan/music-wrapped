@@ -90,6 +90,32 @@ class Counting(unittest.TestCase):
         r = library.snapshot(self.con, tracks=[track("A", 60, played_ts=T0 + 300)], now=T0 + 600)
         self.assertEqual((r["other_plays"], r["ignored"]), (0, 49))
 
+    def test_frequent_snapshots_still_count_late_syncs(self):
+        # Snapshots every 5 minutes: an iPhone play at T0+60 reaches the Mac library only at the
+        # snapshot of T0+900 (iCloud took a while). It's before the previous snapshot, but within
+        # the last hour, so it's a real play, not a backlog.
+        library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0)
+        for k in (1, 2):
+            library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0 + 300 * k)
+        r = library.snapshot(self.con, tracks=[track("A", 11, played_ts=T0 + 60)], now=T0 + 900)
+        self.assertEqual((r["other_plays"], r["ignored"]), (1, 0))
+        # Hours later, a sync of something that old is still treated as a backlog.
+        r = library.snapshot(self.con, tracks=[track("A", 13, played_ts=T0 + 60)], now=T0 + 3 * 3600)
+        self.assertEqual(r["other_plays"], 0)
+
+    def test_mac_play_counted_just_after_a_snapshot_isnt_counted_again(self):
+        # A Mac song ends at T0+298; the snapshot at T0+300 still sees the old count, the next one the +1.
+        library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0)
+        mac_play(self.con, "A", T0 + 98, 200)                      # ends T0+298, finished
+        r = library.snapshot(self.con, tracks=[track("A", 10, played_ts=T0 - 86400)], now=T0 + 300)
+        self.assertEqual(r["other_plays"], 0)
+        r = library.snapshot(self.con, tracks=[track("A", 11, played_ts=T0 + 298)], now=T0 + 600)
+        self.assertEqual(r["other_plays"], 0)
+        self.assertEqual(self.count("other"), 0)
+        # But an iPhone play after it (a later last-played date) still counts.
+        r = library.snapshot(self.con, tracks=[track("A", 12, played_ts=T0 + 800)], now=T0 + 900)
+        self.assertEqual(r["other_plays"], 1)
+
     def test_new_track_is_baseline_only(self):
         library.snapshot(self.con, tracks=[track("A", 1)], now=T0)
         mac_play(self.con, "B", T0 + 100, 200)  # logged on the Mac before B was ever snapshotted

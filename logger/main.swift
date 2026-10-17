@@ -109,16 +109,19 @@ final class DB {
         }
     }
 
-    func insertPlay(_ p: Play, listened: Double, ended: Date) {
+    /// Inserts a play and returns its row id. `final: false` is the early row written when a song
+    /// reaches the minimum: not a skip (yet); finish() updates it with the real listening time.
+    @discardableResult
+    func insertPlay(_ p: Play, listened: Double, ended: Date, final: Bool = true) -> Int64? {
         let sql = """
             INSERT INTO plays (ts, played_at, title, artist, album, duration,
                                seconds_listened, skipped, source, persistent_id, ended_ts, genre)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'mac', ?, ?, ?)
             """
         var st: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return }
+        guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return nil }
         defer { sqlite3_finalize(st) }
-        let skipped = p.duration > 0 && listened < p.duration * skipFraction
+        let skipped = final && p.duration > 0 && listened < p.duration * skipFraction
         sqlite3_bind_int64(st, 1, Int64(p.start.timeIntervalSince1970))
         sqlite3_bind_text(st, 2, isoLocal.string(from: p.start), -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(st, 3, p.title, -1, SQLITE_TRANSIENT)
@@ -132,7 +135,28 @@ final class DB {
         if let g = p.genre, !g.isEmpty { sqlite3_bind_text(st, 11, g, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 11) }
         if sqlite3_step(st) != SQLITE_DONE {
             log("insert failed: \(String(cString: sqlite3_errmsg(handle)))")
+            return nil
         }
+        return sqlite3_last_insert_rowid(handle)
+    }
+
+    /// Finalises an early row: the real listening time, when it ended, and whether it was a skip.
+    /// Returns false if the row is gone (e.g. removed by hand), so the caller can insert instead.
+    func updatePlay(_ id: Int64, _ p: Play, listened: Double, ended: Date) -> Bool {
+        var st: OpaquePointer?
+        let sql = "UPDATE plays SET seconds_listened = ?, skipped = ?, ended_ts = ? WHERE id = ? AND source = 'mac'"
+        guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return false }
+        defer { sqlite3_finalize(st) }
+        let skipped = p.duration > 0 && listened < p.duration * skipFraction
+        sqlite3_bind_double(st, 1, listened.rounded())
+        sqlite3_bind_int(st, 2, skipped ? 1 : 0)
+        sqlite3_bind_int64(st, 3, Int64(ended.timeIntervalSince1970))
+        sqlite3_bind_int64(st, 4, id)
+        guard sqlite3_step(st) == SQLITE_DONE else {
+            log("update failed: \(String(cString: sqlite3_errmsg(handle)))")
+            return false
+        }
+        return sqlite3_changes(handle) == 1
     }
 
     func rows(_ sql: String, _ args: [Int64]) -> [[String]] {
@@ -275,6 +299,7 @@ struct Play: Codable {
     var listened: Double = 0       // seconds accumulated before the current playing stretch
     var playingSince: Date?        // nil while paused
     var lastPosition: Double?      // poll mode only, used to spot a repeat of the same track
+    var rowId: Int64? = nil        // set once the play has been counted (at the minimum); finish() updates it
 
     func total(at now: Date) -> Double {
         listened + (playingSince.map { now.timeIntervalSince($0) } ?? 0)
@@ -289,8 +314,9 @@ struct Pending: Codable {
 final class Tracker {
     let db: DB
     let refresher: Refresher
-    var current: Play?
+    var current: Play? { didSet { scheduleCount() } }
     var wasPlayingBeforeSleep = false
+    var countTimer: DispatchWorkItem?
 
     init(db: DB, refresher: Refresher) {
         self.db = db
@@ -358,14 +384,45 @@ final class Tracker {
                     duration: ms / 1000, start: now)
     }
 
-    /// Ends the current play and stores it if it was listened to long enough.
+    /// Counts the song as soon as it reaches the minimum (30 s of listening), so reports and the widget
+    /// show it straight away instead of when it ends. It's still one row per play: finish() fills in
+    /// the final listening time and the skip flag on the same row.
+    func scheduleCount() {
+        countTimer?.cancel()
+        countTimer = nil
+        guard let cur = current, cur.rowId == nil, cur.playingSince != nil else { return }
+        let wait = max(0, minSeconds - cur.total(at: Date())) + 0.25
+        let item = DispatchWorkItem { [weak self] in self?.countNow() }
+        countTimer = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: item)
+    }
+
+    func countNow() {
+        let now = Date()
+        guard var cur = current, cur.rowId == nil else { return }
+        var listened = cur.total(at: now)
+        if cur.duration > 0 { listened = min(listened, cur.duration) }
+        guard listened >= minSeconds else { return scheduleCount() }
+        guard let id = db.insertPlay(cur, listened: listened, ended: now, final: false) else { return }
+        cur.rowId = id
+        current = cur
+        writeSummary(db)
+        refresher.trigger()
+        log("counted: \(cur.artist) – \(cur.title)")
+    }
+
+    /// Ends the current play: finalises its row, or stores it if it was listened to long enough.
     func finish(_ now: Date) {
         guard let p = current else { return }
         current = nil
         var listened = p.total(at: now)
         if p.duration > 0 { listened = min(listened, p.duration) }
-        guard listened >= minSeconds else { return }
-        db.insertPlay(p, listened: listened, ended: now)
+        if let id = p.rowId, db.updatePlay(id, p, listened: max(listened, minSeconds), ended: now) {
+            // already counted; this just records how it ended
+        } else {
+            guard listened >= minSeconds else { return }
+            db.insertPlay(p, listened: listened, ended: now)
+        }
         writeSummary(db)
         refresher.trigger()
         log("play: \(p.artist) – \(p.title) (\(Int(listened))s)")

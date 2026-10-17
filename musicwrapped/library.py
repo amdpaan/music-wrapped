@@ -35,6 +35,9 @@ COMPLETED_FRACTION = 0.9
 SPAN_SLACK = 10
 # A Mac play "explains" a track's new last-played date if it ended this close to it (seconds).
 EXPLAIN_SLACK = 180
+# How far back a new "last played" date may be and still count as a real play from another device,
+# however often snapshots run (every 5 minutes while Music is open): iCloud can take a while to sync.
+RECENT_WINDOW = 3600
 
 
 class MusicError(RuntimeError):
@@ -176,17 +179,27 @@ def _record_other_plays(con, t, delta, since, now):
       - more plays than could fit in the window: a backlog plus at most one real play, which counts
         only if a Mac play doesn't explain the new last-played date.
     """
-    mac = con.execute(
-        """SELECT COUNT(*) FROM plays WHERE source='mac' AND persistent_id=?
-           AND ended_ts > ? AND ended_ts <= ?
+    finished = """source='mac' AND persistent_id=?
            AND (duration IS NULL OR duration = 0 OR seconds_listened >= duration * ?
-                OR (ended_ts - ts >= duration - ? AND seconds_listened >= duration * 0.5))""",
-        (t["pid"], since or 0, now, COMPLETED_FRACTION, SPAN_SLACK)).fetchone()[0]
+                OR (ended_ts - ts >= duration - ? AND seconds_listened >= duration * 0.5))"""
+    mac = con.execute(f"SELECT COUNT(*) FROM plays WHERE {finished} AND ended_ts > ? AND ended_ts <= ?",
+                      (t["pid"], COMPLETED_FRACTION, SPAN_SLACK, since or 0, now)).fetchone()[0]
     other = delta - mac
+    played = t["played_ts"]
+    if other > 0 and since and played:
+        # A Mac play that ended just before this window can have its play count land in this one
+        # (Music bumps it a moment after the song ends). If it explains the new last-played date,
+        # no other device played the song after it, so the increase is that Mac play: don't count it twice.
+        late = con.execute(f"SELECT COUNT(*) FROM plays WHERE {finished} AND ended_ts > ? AND ended_ts <= ? "
+                           "AND ABS(ended_ts - ?) <= ?",
+                           (t["pid"], COMPLETED_FRACTION, SPAN_SLACK, since - EXPLAIN_SLACK, since,
+                            played, EXPLAIN_SLACK)).fetchone()[0]
+        other -= min(late, other)
     if other <= 0:
         return 0, 0
-    lo = since or 0
-    played = t["played_ts"]
+    # Recent enough to be a real play: at least the last hour, even when the previous snapshot was
+    # only minutes ago (the Mac-play subtraction above still uses the exact window).
+    lo = min(since, now - RECENT_WINDOW) if since else 0
     if not (played and lo < played <= now):
         return 0, other
     fit = max(1, int((now - lo) // max(t["duration"] or 0, 30)))

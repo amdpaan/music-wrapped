@@ -145,7 +145,7 @@ class LoggerTest(unittest.TestCase):
     def test_restart_resumes_same_song_without_double_count(self):
         self.start()
         self.post("Playing", A, seconds=30)
-        time.sleep(2)
+        time.sleep(1)                    # under the 2 s test minimum: not counted yet
         self.stop()                      # launchd stop: saved, not logged
         self.assertEqual(self.rows(), [])
         self.assertTrue((Path(self.home) / "pending.json").exists())
@@ -158,7 +158,39 @@ class LoggerTest(unittest.TestCase):
         self.post("Stopped")
         rows = self.rows()
         self.assertEqual(len(rows), 1)   # one play, not two
-        self.assertAlmostEqual(rows[0]["seconds_listened"], 3.5, delta=1)
+        self.assertAlmostEqual(rows[0]["seconds_listened"], 2.5, delta=1)
+
+    def test_counted_at_the_minimum_then_finished_on_the_same_row(self):
+        # Reports update as soon as a song counts, not when it ends.
+        self.start()
+        self.post("Playing", A, seconds=20)
+        time.sleep(3)                    # past the 2 s test minimum, still playing
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["skipped"], 0)            # not a skip (yet)
+        self.assertTrue((Path(self.home) / "summary.json").exists())
+        early_id = rows[0]["id"]
+        time.sleep(1.5)
+        self.post("Stopped")
+        rows = self.rows()
+        self.assertEqual([r["id"] for r in rows], [early_id])   # the same row, finished
+        self.assertGreater(rows[0]["seconds_listened"], 3)
+        self.assertEqual(rows[0]["skipped"], 1)            # stopped well before half of 20 s
+        self.assertGreater(rows[0]["ended_ts"], rows[0]["ts"] + 3)
+
+    def test_restart_after_counting_keeps_one_row(self):
+        self.start()
+        self.post("Playing", A, seconds=30)
+        time.sleep(3)                    # counted
+        self.assertEqual(len(self.rows()), 1)
+        self.stop()                      # saved with its row id
+        self.start(query={"Player State": "Playing", "PersistentID": HEX[A], "Name": f"Song {A}",
+                          "Artist": "Test Artist", "Album": "Test Album", "Total Time": 30000.0})
+        time.sleep(1)
+        self.post("Stopped")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)   # resumed into the same row
+        self.assertGreater(rows[0]["seconds_listened"], 3)
 
     def test_restart_with_another_song_logs_the_saved_one(self):
         self.start()
