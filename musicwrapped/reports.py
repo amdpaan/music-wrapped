@@ -344,6 +344,7 @@ def custom(con, start, end_incl, label=None, slides_only=False):
     repeat = [(r.name, r.sub, R.fmt_plays(r.plays)) for r in S.on_repeat(plays, 5)[:10]]
     skipped = [(t, a, f"{s} of {n} skipped") for t, a, s, n in S.most_skipped(plays)]
     new = [(r.name, "new in this period", R.fmt_plays(r.plays)) for r in S.new_artists(con, plays, start)]
+    persona = personality_for(con, plays, start, end)
     body = (top_cards(plays, 10)
             + genres_card(plays, 5)
             + R.card("Hours per week", R.bars(week_bars(plays, start, end)), "dark", badge=ALL_DEVICES, wide=True)
@@ -359,7 +360,6 @@ def custom(con, start, end_incl, label=None, slides_only=False):
     slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-") if label else ""
     name = f"{start}_to_{end_incl}" + (f"_{slug}" if slug else "")
     d = SL.data_for(con, "custom", plays, None, start, end)
-    persona = personality_for(con, plays, start, end)
     weeks = [(lab, h) for lab, h, _ in week_bars(plays, start, end)]
     sl = SL.build(d, SL.words("custom", label), fmt_range(start, end), [
         ("peak", SL.peak(d, None)),

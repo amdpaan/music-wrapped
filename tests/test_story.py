@@ -76,6 +76,21 @@ class StorySlides(unittest.TestCase):
         self.assertEqual((r.name, r.plays, day.day), ("A", 5, 14))
         self.assertIsNone(stats.most_replayed_day(plays[:2]))   # fewer than 3 plays isn't a record
 
+    def test_every_full_report_builds(self):
+        # The slides test above only builds slides; this builds each whole page (a custom report once
+        # crashed here while every slide test passed).
+        from datetime import timedelta
+        from musicwrapped import demo, paths, reports
+        os.environ["MUSIC_WRAPPED_HOME"] = tempfile.mkdtemp()
+        paths.SUPPORT = paths.Path(os.environ["MUSIC_WRAPPED_HOME"])
+        con = demo.build()
+        today = date.today()
+        for kind, name, html in (reports.weekly(con, today), reports.monthly(con, today.year, today.month, so_far=True),
+                                 reports.yearly(con, today.year), reports.alltime(con),
+                                 reports.custom(con, today - timedelta(days=60), today, "Test range")):
+            self.assertIn("</html>", html, kind)
+            self.assertIn('id="details"', html, kind)
+
     def test_big_numbers_fit_their_column(self):
         from musicwrapped import slides
         html = slides._num(1234567, 30, 340)
