@@ -298,6 +298,7 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False, s
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
 <title>{e(title)}</title>
+<script>document.documentElement.classList.add("js")</script>
 <style>{CSS}{story_css}</style></head>
 <body><canvas id="bg" aria-hidden="true"></canvas>{story}<main id="details">
 <div class="hero-wrap"><a class="mascot" href="{"weekly/latest.html" if home else THIS_WEEK}" title="Open this week's Wrapped"

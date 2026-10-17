@@ -89,14 +89,16 @@ CSS = """
   font-weight:800;letter-spacing:.12em;text-transform:uppercase;opacity:.8;animation:nudge 1.8s ease-in-out infinite}
 @keyframes nudge{0%,100%{transform:translate(-50%,0)}50%{transform:translate(-50%,6px)}}
 /* reveal on scroll */
-.rv{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--d,0)*120ms)}
-.in .rv{opacity:1;transform:none}
-.gb .tr i,.hist i{transition:transform 1s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--d,0)*60ms + 300ms);transform:scaleX(0)}
-.hist i{transform:scaleY(0)}
-.in .gb .tr i{transform:none}.in .hist i{transform:none}
+/* Only hidden when JavaScript runs (html.js, set in <head>): previews without JS, such as an
+   AirDropped file in iOS Quick Look, show every slide fully drawn. */
+html.js .rv{opacity:0;transform:translateY(28px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--d,0)*120ms)}
+html.js .in .rv{opacity:1;transform:none}
+html.js .gb .tr i,html.js .hist i{transition:transform 1s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--d,0)*60ms + 300ms);transform:scaleX(0)}
+html.js .hist i{transform:scaleY(0)}
+html.js .in .gb .tr i,html.js .in .hist i{transform:none}
 html.static .rv,html.static .gb .tr i,html.static .hist i{opacity:1;transform:none;transition:none}
 html.static .hint{display:none}
-@media (prefers-reduced-motion:reduce){.rv,.gb .tr i,.hist i{opacity:1;transform:none;transition:none}.hint{animation:none}}
+@media (prefers-reduced-motion:reduce){html.js .rv,html.js .gb .tr i,html.js .hist i{opacity:1;transform:none;transition:none}.hint{animation:none}}
 /* slide dots + skip link */
 .dots{position:fixed;right:clamp(8px,1.6vw,22px);top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;gap:10px}
 .dots a{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.28);display:block}

@@ -91,6 +91,7 @@ music-wrapped open                         # newest report of any kind
 music-wrapped open weekly                  # reports/weekly/latest.html
 music-wrapped home                         # page listing every report you've generated
 music-wrapped story                        # shareable 1080x1920 story images (this week)
+music-wrapped serve                        # open your reports on your iPhone over Wi-Fi (until Ctrl-C)
 
 music-wrapped status                       # what's logged, agents loaded, latest reports, health
 music-wrapped health                       # is anything broken? (exit code 1 if so)
@@ -198,6 +199,28 @@ music-wrapped story alltime            # from your library's play counts
 They're saved in `stories/<kind>/<period>/`. Cards are drawn with the system WebKit by a small Swift tool
 (`renderer/main.swift`, built by the installer or on first use) and use higher-resolution covers (640 px,
 cached in `artwork/640/`).
+
+## On your iPhone
+
+**Story images**: run `music-wrapped story` and AirDrop the PNGs to your phone. They land in Photos.
+
+**The full reports, over Wi-Fi**: run `music-wrapped serve` on the Mac. It prints a link like
+`http://Your-Mac.local:8000/Xy3k9Q/` and copies it to the clipboard (with Handoff, you can paste it straight
+into Safari on the iPhone). You get the home page, every report and the live weekly page with all the animations.
+In Safari, Share → Add to Home Screen makes it feel like an app.
+
+- It only shares the reports folder, read-only, and only under that secret link. Folder listings, your
+  database and everything else return "not found".
+- It runs only while you want it to: until you press Ctrl-C, or for at most 2 hours (`--hours 0.5`, or
+  `--hours 0` for no limit). Both devices need the same Wi-Fi and the Mac must be awake.
+- Anyone on the same network who has the link can see your reports, so prefer your home Wi-Fi.
+  `--new-link` makes a new code, and the old link stops working.
+- If the macOS firewall is on, it asks once whether python3 may accept incoming connections: allow it.
+- `--port 8123` if port 8000 is taken.
+
+**A single report file**: you can also AirDrop a report's HTML file (for example
+`reports/weekly/latest.html`; covers are built in). iOS opens it in a preview without animations,
+but every slide and detail is still shown.
 
 ## Top genres
 

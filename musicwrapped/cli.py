@@ -201,6 +201,12 @@ def cmd_home(a):
     return 0
 
 
+def cmd_serve(a):
+    from . import serve
+    reports.write_index()
+    return serve.run(a.port, a.hours, a.new_link)
+
+
 def cmd_summary(a):
     print(json.dumps(summary.write(db.connect()), indent=2, ensure_ascii=False))
     return 0
@@ -348,6 +354,12 @@ def main(argv=None):
 
     s = sub.add_parser("home", help="open the page listing every report")
     s.set_defaults(fn=cmd_home)
+
+    s = sub.add_parser("serve", help="open your reports on your iPhone over Wi-Fi (until Ctrl-C)")
+    s.add_argument("--port", type=int, default=8000)
+    s.add_argument("--hours", type=float, default=2, help="stop by itself after this long (0 = never)")
+    s.add_argument("--new-link", action="store_true", help="make a new secret link (the old one stops working)")
+    s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser("summary", help="rewrite summary.json for the widget and print it")
     s.set_defaults(fn=cmd_summary)
