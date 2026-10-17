@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Apple Silicon macOS, like the Macs this runs on: the logger, renderer and app are Swift + AppKit.
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python and Swift versions
+        run: |
+          /usr/bin/python3 --version
+          swiftc --version
+
+      - name: Unit and end-to-end tests
+        # System Python (3.9 on most Macs), the same one the launchd jobs use. The logger tests build it
+        # and drive it with fake Music events on a private notification name.
+        run: /usr/bin/python3 -m unittest discover -v tests
+
+      - name: Everything compiles
+        run: |
+          mkdir -p build
+          swiftc -O -o build/renderer renderer/main.swift
+          swiftc -O -target "$(uname -m)-apple-macos12.0" -o build/app app/main.swift
+          for f in install.sh uninstall.sh tools/make-app.sh tools/sign-logger.sh; do sh -n "$f"; done
+
+      - name: The demo builds every report
+        run: MUSIC_WRAPPED_HOME="$RUNNER_TEMP/mw" bin/music-wrapped demo --no-open
+
+      - name: Story renderer and QR code work
+        run: |
+          build/renderer --qr "https://example.com/" | head -3
+          printf '<!doctype html><body style="background:#1ed760">ok</body>' > "$RUNNER_TEMP/p.html"
+          build/renderer 108 192 "$RUNNER_TEMP/p.html" "$RUNNER_TEMP/p.png"
+          sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP/p.png"

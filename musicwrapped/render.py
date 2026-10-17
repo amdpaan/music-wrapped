@@ -43,6 +43,8 @@ a.mascot:focus-visible{outline:2px solid #1ed760;outline-offset:6px;border-radiu
 .hero h1{font-size:clamp(40px,8vw,88px);line-height:.95;font-weight:900;letter-spacing:-.035em;margin:12px 0 10px}
 .hero .range{font-size:18px;font-weight:600;opacity:.92}
 .stats{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+.story-link{display:inline-block;margin-top:18px;font-size:14px;font-weight:800;color:#07130b;background:#1ed760;text-decoration:none;padding:9px 15px;border-radius:999px}
+.story-link[hidden]{display:none}
 .stat{background:rgba(0,0,0,.28);border-radius:18px;padding:14px 18px;min-width:150px}
 .stat b{display:block;font-size:34px;font-weight:900;letter-spacing:-.02em;line-height:1.05}
 .stat span{font-size:13px;font-weight:600;opacity:.85}
@@ -183,7 +185,8 @@ LIVE_JS = """<script>
     }
   } catch (e) {}
   setInterval(function () {
-    if (document.hidden || document.querySelector("details[open]")) return;
+    if (document.hidden || document.querySelector("details[open]") ||
+        document.documentElement.classList.contains("playing")) return;   // never interrupt a story
     try { sessionStorage.setItem(KEY, String(window.scrollY)); } catch (e) {}
     location.reload();
   }, 60000);
@@ -288,7 +291,8 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False, s
     tiles = "".join(f'<div class="stat"><b>{e(v)}</b><span>{e(k)}</span></div>' for k, v in stats)
     if story:
         heading = "The details"
-        story = (f'<a class="skip" href="#details">Skip to details ↓</a><div class="story">{story}</div>')
+        story = (f'<a class="play-btn" href="#play">▶ Play story</a><a class="skip" href="#details">Skip to details ↓</a>'
+                 f'<div class="story">{story}</div>')
         story_css = "html{scroll-snap-type:y proximity}" + story_css
     if live:
         kicker = f"{kicker} · live"
@@ -304,7 +308,7 @@ def page(title, kicker, heading, range_label, stats, body, footer, live=False, s
 <div class="hero-wrap"><a class="mascot" href="{"weekly/latest.html" if home else THIS_WEEK}" title="Open this week's Wrapped"
   aria-label="Open this week's Wrapped">{MASCOT}</a>
 <section class="hero"><div class="kicker">{e(kicker)}</div><h1>{e(heading)}</h1>
-<div class="range">{e(range_label)}</div><div class="stats">{tiles}</div></section></div>
+<div class="range">{e(range_label)}</div><div class="stats">{tiles}</div><!--story-images--></section></div>
 <div class="grid">{body}</div>
 <footer>{footer}<br>Generated {e(datetime.now().strftime("%a %-d %b %Y, %H:%M"))} · music-wrapped</footer>
 </main>{BG_JS}{LIVE_JS if live else ""}{story_js if story else ""}</body></html>

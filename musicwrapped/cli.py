@@ -207,6 +207,11 @@ def cmd_serve(a):
     return serve.run(a.port, a.hours, a.new_link)
 
 
+def cmd_update(a):
+    from . import update
+    return update.run(rebuild=a.rebuild, pull=not a.no_pull)
+
+
 def cmd_summary(a):
     print(json.dumps(summary.write(db.connect()), indent=2, ensure_ascii=False))
     return 0
@@ -360,6 +365,11 @@ def main(argv=None):
     s.add_argument("--hours", type=float, default=2, help="stop by itself after this long (0 = never)")
     s.add_argument("--new-link", action="store_true", help="make a new secret link (the old one stops working)")
     s.set_defaults(fn=cmd_serve)
+
+    s = sub.add_parser("update", help="get the latest version from GitHub and rebuild what changed")
+    s.add_argument("--rebuild", action="store_true", help="rebuild the logger, renderer and app even if unchanged")
+    s.add_argument("--no-pull", action="store_true", help="don't download anything; just rebuild/check")
+    s.set_defaults(fn=cmd_update)
 
     s = sub.add_parser("summary", help="rewrite summary.json for the widget and print it")
     s.set_defaults(fn=cmd_summary)

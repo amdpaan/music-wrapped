@@ -4,10 +4,12 @@ story size). Same design as the slides at the top of each report, with animation
 Pages are rendered by renderer/main.swift with the system WebKit.
 """
 
+import argparse
 import shutil
 import subprocess
 import tempfile
 from datetime import date, timedelta
+from html import escape
 from pathlib import Path
 
 from . import artwork, paths, reports, render as R, slides as SL
@@ -58,6 +60,42 @@ def slides_for(con, kind, a, today=None):
     return name, sl
 
 
+TITLES = {"weekly": "Your week", "monthly": "Your month", "yearly": "Your year", "alltime": "All time"}
+
+
+def gallery(kind, name, files):
+    """index.html next to the PNGs: every image, big, with how to save it (long-press on an iPhone)."""
+    imgs = "".join(f'<a href="{escape(f)}"><img src="{escape(f)}" alt="Story image {i}" loading="lazy"></a>'
+                   for i, f in enumerate(files, 1))
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark">
+<title>{escape(TITLES.get(kind, "Your"))} in stories</title><style>
+*{{box-sizing:border-box}}body{{margin:0;background:#09090d;color:#f4f4f6;padding:24px 16px 48px;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}}
+main{{max-width:1180px;margin:0 auto}}h1{{font-size:clamp(30px,7vw,56px);letter-spacing:-.03em;margin:8px 0 6px}}
+p{{color:#a8a8b3;font-weight:600;margin:0 0 20px;line-height:1.45}}a.back{{color:#1ed760;font-weight:800;text-decoration:none}}
+.g{{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:14px}}
+.g img{{width:100%;aspect-ratio:9/16;display:block;border-radius:18px;background:#14141b}}
+</style></head><body><main>
+<a class="back" href="../../../reports/{escape(kind)}/{escape(name)}.html">← Back to the report</a>
+<h1>{escape(TITLES.get(kind, "Your"))} in stories</h1>
+<p>{len(files)} images, 1080×1920. On an iPhone: touch and hold an image, then <b>Save to Photos</b>.
+On a Mac: drag them out, or right-click → Save Image As.</p>
+<div class="g">{imgs}</div></main></body></html>"""
+
+
+def args_for(kind, name):
+    """The story command's arguments for a saved report (weekly 2026-W42, monthly 2026-10, yearly 2026)."""
+    a = argparse.Namespace(week=None, month=None, current=False, year=None)
+    if kind == "weekly":
+        a.week = name
+    elif kind == "monthly":
+        a.month = name
+    elif kind == "yearly":
+        a.year = int(name)
+    return a
+
+
 def renderer():
     """Path to the compiled renderer, building it if it's missing or older than its source."""
     exe = paths.SUPPORT / "bin/music-wrapped-render"
@@ -85,4 +123,6 @@ def make(con, kind, a):
             f.write_text(artwork.inject(page(html)), encoding="utf-8")
             jobs += [str(f), str(out / f"{i:02d}-{slide_name}.png")]
         subprocess.run([str(renderer()), str(W), str(H), *jobs], check=True, timeout=300)
+    files = sorted(p.name for p in out.glob("*.png"))
+    (out / "index.html").write_text(gallery(kind, name, files), encoding="utf-8")
     return out

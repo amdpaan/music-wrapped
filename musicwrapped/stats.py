@@ -1,12 +1,48 @@
 """Aggregations over logged plays (date ranges) and the library (all-time)."""
 
+import re
 from collections import Counter, defaultdict, namedtuple
 from datetime import date, datetime, timedelta
 
-Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid genre")
+Play = namedtuple("Play", "ts dt title artist album duration seconds skipped source pid genre ended")
 # pid: a track to take the cover from (for artists/albums: their most-played track).
 # est: the part of `seconds` that is estimated (other-device plays count as the full track length).
 Row = namedtuple("Row", "name sub plays seconds pid est", defaults=(None, 0))
+
+
+# ---------- genres ----------
+
+# Spellings of one genre that should count together, by genre_key(). Anything else with the same key
+# (e.g. "Hip Hop" / "hip-hop" / "HipHop") merges too, under the first spelling seen.
+GENRE_ALIASES = {
+    "hiphop": "Hip-Hop/Rap", "hiphoprap": "Hip-Hop/Rap", "rap": "Hip-Hop/Rap", "raphiphop": "Hip-Hop/Rap",
+    "rnb": "R&B/Soul", "randb": "R&B/Soul", "rb": "R&B/Soul", "randbsoul": "R&B/Soul", "rbsoul": "R&B/Soul",
+    "rnbsoul": "R&B/Soul",
+    "kpop": "K-Pop", "jpop": "J-Pop", "cpop": "C-Pop", "mandopop": "Mandopop", "cantopop": "Cantopop",
+    "singersongwriter": "Singer/Songwriter",
+    "lofi": "Lo-Fi", "lofihiphop": "Lo-Fi",
+    "electronic": "Electronic", "electronica": "Electronic",
+    "alternative": "Alternative", "alt": "Alternative",
+    "indiepop": "Indie Pop", "indierock": "Indie Rock",
+    "soundtrack": "Soundtrack", "soundtracks": "Soundtrack", "ost": "Soundtrack",
+}
+_FIRST_SPELLING = {}
+
+
+def genre_key(name):
+    """'Hip-Hop/Rap', 'hip hop & rap' -> comparable keys ('&' reads as 'and')."""
+    return re.sub(r"[^0-9a-z]+", "", (name or "").lower().replace("&", "and"))
+
+
+def genre_name(name):
+    """One display name per genre, however it's spelled. '' for unknown."""
+    name = (name or "").strip()
+    key = genre_key(name)
+    if not key:
+        return ""
+    if key in GENRE_ALIASES:
+        return GENRE_ALIASES[key]
+    return _FIRST_SPELLING.setdefault(key, name)
 
 
 def ts_of(d):
@@ -28,7 +64,7 @@ def plays_between(con, start, end):
         secs = r["seconds_listened"] if r["source"] == "mac" else (r["duration"] or r["seconds_listened"])
         out.append(Play(r["ts"], datetime.fromtimestamp(r["ts"]), r["title"], r["artist"] or "Unknown artist",
                         r["album"] or "", r["duration"] or 0, secs or 0, r["skipped"], r["source"],
-                        r["persistent_id"], (r["g"] or "").strip()))
+                        r["persistent_id"], genre_name(r["g"]), r["ended_ts"] or r["ts"]))
     return out
 
 
@@ -163,6 +199,34 @@ def streak_until(con, last_day):
     return (n, d + timedelta(days=1), end) if n else (0, None, None)
 
 
+def longest_session(plays, gap=10 * 60):
+    """Mac only: the longest stretch of back-to-back listening (a new session starts after a gap of
+    more than 10 minutes). (start datetime, end datetime, songs) or None."""
+    best, cur = None, None
+    for p in sorted((p for p in plays if p.source == "mac"), key=lambda p: p.ts):
+        if cur and p.ts - cur[1] <= gap:
+            cur = (cur[0], max(cur[1], p.ended), cur[2] + 1)
+        else:
+            cur = (p.ts, p.ended, 1)
+        if not best or cur[1] - cur[0] > best[1] - best[0]:
+            best = cur
+    if not best:
+        return None
+    return datetime.fromtimestamp(best[0]), datetime.fromtimestamp(best[1]), best[2]
+
+
+def most_replayed_day(plays, min_plays=3):
+    """The song played most times on a single day: (Row, date) or None. All devices."""
+    days = Counter((p.dt.date(), p.title, p.artist) for p in plays)
+    if not days:
+        return None
+    (day, title, artist), n = max(days.items(), key=lambda kv: (kv[1], kv[0][0]))
+    if n < min_plays:
+        return None
+    pid = Counter(p.pid for p in plays if p.title == title and p.artist == artist and p.pid).most_common(1)
+    return Row(title, artist, n, 0, pid[0][0] if pid else None), day
+
+
 def week_buckets(start, end):
     """ISO weeks (Mon–Sun) overlapping [start, end), clipped to the range: [(label, s, e)]."""
     out = []
@@ -193,8 +257,17 @@ def library_top(con, kind, n):
     if kind == "songs":
         q = f"SELECT title, artist, play_count, play_count * COALESCE(duration, 0), persistent_id {base} ORDER BY 3 DESC, 4 DESC LIMIT ?"
     elif kind == "genres":
+        # Grouped by spelling in SQL, then spellings of the same genre are merged here.
         q = (f"SELECT genre, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='genre')} "
-             f"{base} AND COALESCE(genre, '') != '' GROUP BY genre ORDER BY 3 DESC, 4 DESC LIMIT ?")
+             f"{base} AND COALESCE(genre, '') != '' GROUP BY genre ORDER BY 3 DESC, 4 DESC")
+        merged = {}
+        for r in con.execute(q):
+            name = genre_name(r[0])
+            m = merged.get(name)
+            # Each spelling's rows arrive most-played first, so the first one keeps its cover track.
+            merged[name] = Row(name, "", r[2], r[3], r[4]) if not m else m._replace(plays=m.plays + r[2], seconds=m.seconds + r[3])
+        rows = sorted(merged.values(), key=lambda r: (-r.plays, -r.seconds, r.name.lower()))
+        return rows[:n]
     elif kind == "artists":
         q = (f"SELECT artist, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='artist')} "
              f"{base} AND artist != '' GROUP BY artist ORDER BY 3 DESC, 4 DESC LIMIT ?")

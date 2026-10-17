@@ -1,5 +1,7 @@
 # music-wrapped
 
+[![tests](https://github.com/amdpaan/music-wrapped/actions/workflows/tests.yml/badge.svg)](https://github.com/amdpaan/music-wrapped/actions/workflows/tests.yml)
+
 A personal, Spotify-Wrapped-style recap of your **Apple Music** listening, for Apple Silicon Macs.
 Everything is free and local: no paid APIs, no Apple developer account, no data leaves your Mac.
 
@@ -52,6 +54,10 @@ The installer:
    If the Mac is asleep at a scheduled time, launchd runs the job when it wakes up.
 5. Runs the **backfill** (first library snapshot).
 
+To update later: `music-wrapped update`. It pulls the latest version and rebuilds only what changed (the
+logger, which is re-signed and restarted, the story renderer, the app), re-runs the installer if that changed,
+then checks that all six background jobs are running. `--rebuild` rebuilds everything anyway.
+
 To uninstall: `./uninstall.sh` (keeps your data) or `./uninstall.sh --purge` (also deletes the data and the signing certificate).
 
 **Signing.** macOS remembers Automation approvals per app identity. A plain (ad-hoc) build gets a new identity
@@ -92,6 +98,7 @@ music-wrapped open weekly                  # reports/weekly/latest.html
 music-wrapped home                         # page listing every report you've generated
 music-wrapped story                        # shareable 1080x1920 story images (this week)
 music-wrapped serve                        # open your reports on your iPhone over Wi-Fi (until Ctrl-C)
+music-wrapped update                       # get the latest version and rebuild what changed
 
 music-wrapped status                       # what's logged, agents loaded, latest reports, health
 music-wrapped health                       # is anything broken? (exit code 1 if so)
@@ -170,6 +177,14 @@ whether your #1 artist and song changed, your current listening streak (days in 
 artists you found. While a week or month is still in progress it compares with the same point of the previous
 one ("this time last week"), so a Tuesday isn't measured against a whole week.
 
+**▶ Play story** (top left of every report, and on the home page) plays the slides like Instagram
+stories: full screen, one at a time, 6 seconds each, with progress bars. Tap the right side for the next
+slide, the left side to go back, hold to pause; ✕ or Esc returns to the page. Links ending in `#play` start
+it straight away, which is handy as a Home Screen bookmark on your iPhone.
+
+Every report also has **your records**: the longest listening session (back-to-back plays with breaks under
+10 minutes; Mac only, since only Mac plays have exact times) and the song you replayed most in a single day.
+
 ![The details: top songs, artists and albums](docs/screenshots/details.jpg)
 
 `music-wrapped home` opens a page with **this week so far** (covers, minutes, top song/artist/genre) and
@@ -179,7 +194,7 @@ links to every report.
 
 ## Story images
 
-`music-wrapped story` renders the same slides as 1080×1920 PNGs, the size of an Instagram or WhatsApp
+`music-wrapped story` renders the same slides as 1080×1920 PNGs, plus a page showing them all,, the size of an Instagram or WhatsApp
 story, and opens the folder (intro, minutes, top song, top artist, top songs, top genre, the extras for
 that report, summary).
 
@@ -225,6 +240,9 @@ In Safari, Share → Add to Home Screen makes it feel like an app.
   `--new-link` makes a new code, and the old link stops working.
 - If the macOS firewall is on, it asks once whether python3 may accept incoming connections: allow it.
 - `--port 8123` if port 8000 is taken.
+- Reports opened this way have a **Story images** button. It makes that report's story images on the Mac
+  (about 10 seconds the first time, then cached until the report changes) and shows them on a page where
+  you touch and hold each one, then **Save to Photos**. Nothing to AirDrop.
 
 **A single report file**: you can also AirDrop a report's HTML file (for example
 `reports/weekly/latest.html`; covers are built in). iOS opens it in a preview without animations,
@@ -236,6 +254,10 @@ Every report has a **Top genres** card: rank, the cover of each genre's most-pla
 genre's share of plays (top 5; top 10 by library play count on the all-time page). The logger stores the
 genre Music reports for each Mac play. Older plays and other-device plays use the library track's genre,
 which every snapshot reads. Plays with no genre are left out of the percentages.
+
+Different spellings of one genre count together: case, spaces and punctuation are ignored ("Hip Hop",
+"hip-hop", "HipHop"), and common aliases are merged under Apple's names ("Rap" and "Hip Hop" → Hip-Hop/Rap,
+"RnB" → R&B/Soul, "K Pop" → K-Pop, "Lofi" → Lo-Fi; see `GENRE_ALIASES` in `musicwrapped/stats.py`).
 
 ## Album artwork
 
@@ -343,6 +365,9 @@ swiftc -O -o build/music-wrapped-logger logger/main.swift
 build/music-wrapped-logger --probe 30  # print raw Music notifications
 MUSIC_WRAPPED_HOME=/tmp/mw music-wrapped demo   # use a different data folder
 ```
+
+GitHub Actions runs the same tests on Apple Silicon macOS for every push (`.github/workflows/tests.yml`),
+and also checks that every Swift part compiles, the demo builds every report and the renderer can draw a page.
 
 ## License
 

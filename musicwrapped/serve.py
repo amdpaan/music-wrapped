@@ -1,9 +1,12 @@
 """music-wrapped serve: share the reports folder over Wi-Fi so an iPhone on the same network can open them.
 
 Runs in the foreground only while you want it (Ctrl-C, or it stops by itself after --hours). Only the
-reports folder is served, read-only, under a secret path (http://<mac>.local:<port>/<code>/) kept in
-config.json, so a Home Screen bookmark keeps working; `--new-link` makes a new code and the old link
-stops working. No directory listings, nothing outside the reports.
+reports/ and stories/ folders are served, read-only, under a secret path (http://<mac>.local:<port>/<code>/)
+kept in config.json, so a Home Screen bookmark keeps working; `--new-link` makes a new code and the old
+link stops working. No directory listings, nothing else from the data folder (plays.db, config, backups).
+
+Story images are made on demand: a report's "Story images" button (shown only when served) links to
+stories/<kind>/<name>/, which is rendered the first time it's opened and again when the report has changed.
 """
 
 import hmac
@@ -19,6 +22,10 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 
 from . import paths
+
+SHARED = ("reports", "stories")
+STORY_KINDS = ("weekly", "monthly", "yearly", "alltime")
+_story_lock = threading.Lock()
 
 
 def _config():
@@ -79,6 +86,27 @@ def qr(text):
     return "\n".join(f"  \033[30;107m{line}\033[0m" for line in lines)
 
 
+def ensure_stories(kind, name):
+    """stories/<kind>/<name>/, rendered if it's missing or older than its report. Returns the folder
+    (for all-time, today's), or None if there's no such report."""
+    from . import artwork, db, story
+    report = paths.REPORTS / kind / f"{name}.html"
+    if kind not in STORY_KINDS or not report.exists():
+        return None
+    folder = paths.SUPPORT / "stories" / kind / name
+    index = folder / "index.html"
+    with _story_lock:
+        if index.exists() and index.stat().st_mtime >= report.stat().st_mtime:
+            return folder
+        artwork.ALLOW_LAUNCH = False   # never start Music from here; covers come from the cache
+        print(f"Making story images for {kind} {name}…")
+        con = db.connect()
+        try:
+            return story.make(con, kind, story.args_for(kind, name))
+        finally:
+            con.close()
+
+
 class Handler(SimpleHTTPRequestHandler):
     code = ""
 
@@ -99,12 +127,30 @@ class Handler(SimpleHTTPRequestHandler):
         if rest is None:
             self.send_error(404)
             return None
-        if rest == "":
-            self.send_response(301)
-            self.send_header("Location", f"/{self.code}/")
+        if rest in ("", "/"):
+            self.send_response(302)
+            self.send_header("Location", f"/{self.code}/reports/")
             self.end_headers()
             return None
-        target = paths.REPORTS / unquote(rest).lstrip("/")
+        parts = [p for p in unquote(rest).split("/") if p]
+        if not parts or parts[0] not in SHARED or any(p in (".", "..") or p.startswith(".") for p in parts):
+            self.send_error(404)
+            return None
+        if parts[0] == "stories" and len(parts) >= 3:
+            try:
+                folder = ensure_stories(parts[1], parts[2])
+            except Exception as ex:   # rendering failed: say so instead of a blank page
+                self.send_error(500, f"Couldn't make the story images ({ex})")
+                return None
+            if folder is None:
+                self.send_error(404)
+                return None
+            if folder.name != parts[2]:   # all-time: always today's
+                self.send_response(302)
+                self.send_header("Location", f"/{self.code}/stories/{parts[1]}/{folder.name}/")
+                self.end_headers()
+                return None
+        target = paths.SUPPORT / unquote(rest).lstrip("/")
         if target.is_dir():
             if not rest.endswith("/"):
                 self.send_response(301)
@@ -138,7 +184,7 @@ def run(port=8000, hours=2.0, new_link=False, copy=True):
         print("No reports yet. Make one first: music-wrapped report weekly")
         return 1
     code = link_code(new_link)
-    handler = partial(type("H", (Handler,), {"code": code}), directory=str(paths.REPORTS))
+    handler = partial(type("H", (Handler,), {"code": code}), directory=str(paths.SUPPORT))
     try:
         server = ThreadingHTTPServer(("0.0.0.0", port), handler)
     except OSError as ex:

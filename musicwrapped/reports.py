@@ -74,6 +74,27 @@ def genres_card(plays, n):
                   note="Share of plays with a known genre; covers show each genre's most-played song")
 
 
+def records_cards(plays):
+    """Longest session (Mac only) and the song replayed most in one day."""
+    out = ""
+    session = S.longest_session(plays)
+    if session:
+        start, end, n = session
+        out += R.card("Longest session", R.headline(SL.duration(start, end),
+                      f"{start:%a %-d %b}, {start:%H:%M}–{end:%H:%M} · {SL.plural(n, 'song')}"), "teal",
+                      note="Back-to-back listening; breaks under 10 minutes don't end it", badge=MAC_ONLY)
+    replay = S.most_replayed_day(plays)
+    if replay:
+        r, day = replay
+        out += R.card("Most replayed in a day", R.headline(r.name, f"{r.sub} · {r.plays} plays on {day:%a %-d %b}", r.pid, art=True),
+                      "pink", note="The same song, the most times in one day", badge=ALL_DEVICES)
+    return out
+
+
+def _records_slide(plays):
+    return ("records", SL.records(S.longest_session(plays), S.most_replayed_day(plays)))
+
+
 def hero_stats(plays, compare=None):
     mac, other = device_split(plays)
     h, est = S.hours(plays), S.estimated_hours(plays)
@@ -147,7 +168,8 @@ def weekly(con, week_start, slides_only=False):
             + R.card("Most skipped", R.simple_list(skipped, "No skips logged. Every song earned its spot."), "blue",
                      note="Stopped before the halfway mark", badge=MAC_ONLY)
             + R.card("New artists", R.simple_list(new, "No new artists this week."), "yellow",
-                     note="Artists you hadn't played before", badge=ALL_DEVICES))
+                     note="Artists you hadn't played before", badge=ALL_DEVICES)
+            + records_cards(plays))
     label = f"Week {w} · {fmt_range(start, end)}"
     d = SL.data_for(con, "weekly", plays, prev if so_far is None else so_far, start, end)
     if d:
@@ -156,6 +178,7 @@ def weekly(con, week_start, slides_only=False):
     sl = SL.build(d, SL.words("weekly"), label, [
         ("peak", SL.peak(d, None)),
         ("changes", SL.changes(d, SL.words("weekly"), prev, S.streak_until(con, last_day), len(new_rows))),
+        _records_slide(plays),
     ]) if d else []
     if slides_only:
         return "weekly", name, sl
@@ -194,6 +217,7 @@ def monthly(con, y, m, so_far=False, slides_only=False):
         ("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}")),
         ("changes", SL.changes(d, wd, prev, S.streak_until(con, q_end - timedelta(days=1)),
                                len(S.new_artists(con, plays, start)))),
+        _records_slide(plays),
     ]) if d else []
     if slides_only:
         return "monthly", name, sl
@@ -202,7 +226,8 @@ def monthly(con, y, m, so_far=False, slides_only=False):
             + R.card("Hours per week", R.bars(week_bars(plays, start, q_end)), "dark",
                      note="Listening hours in each week of the month (weeks start Monday)", badge=ALL_DEVICES, wide=True)
             + R.card("How your top artists moved", artist_changes(plays, start, q_end), "dark",
-                     note="Your month's top 5 artists, ranked week by week", badge=ALL_DEVICES, wide=True))
+                     note="Your month's top 5 artists, ranked week by week", badge=ALL_DEVICES, wide=True)
+            + records_cards(plays))
     html = R.page(f"Wrapped {title}", "Your month in music" + (" · so far" if so_far else ""), title,
                   fmt_range(start, q_end), hero_stats(plays, (f"vs {cmp_label}", _pct(S.hours(plays), pc))), body,
                   footer(con), story=_story(sl), story_css=SL.CSS, story_js=SL.JS)
@@ -236,6 +261,7 @@ def yearly(con, y, slides_only=False):
         ("months", SL.months_grid(month_items)),
         ("best-month", SL.best_bucket("Your biggest month", [(m, h) for m, h, _ in month_hours],
                                       lambda m: calendar.month_name[list(calendar.month_abbr).index(m)])),
+        _records_slide(plays),
     ]) if d else []
     if slides_only:
         return "yearly", str(y), sl
@@ -251,7 +277,8 @@ def yearly(con, y, slides_only=False):
             + top_cards(plays, 10, "teal", "lilac", "purple")
             + genres_card(plays, 5)
             + R.card("Top song of each month", R.months(month_items), "blue", badge=ALL_DEVICES, wide=True)
-            + R.card("Hours per month", R.bars(month_hours), "dark", badge=ALL_DEVICES, wide=True))
+            + R.card("Hours per month", R.bars(month_hours), "dark", badge=ALL_DEVICES, wide=True)
+            + records_cards(plays))
     html = R.page(f"Wrapped {y}", f"{y} Wrapped · January to November", f"Your {y}, Wrapped",
                   fmt_range(start, q_end), hero_stats(plays), body, footer(con),
                   story=_story(sl), story_css=SL.CSS, story_js=SL.JS)
@@ -303,7 +330,8 @@ def custom(con, start, end_incl, label=None, slides_only=False):
                      f"{s_from:%-d %b} – {s_to:%-d %b}" if streak else "No plays logged"), "orange")
             + R.card("New artists", R.simple_list(new, "No new artists in this period."), "yellow", badge=ALL_DEVICES)
             + R.card("On repeat", R.simple_list(repeat, "No song hit 5 plays."), "teal", note="Songs with 5+ plays")
-            + R.card("Most skipped", R.simple_list(skipped, "No skips logged."), "blue", badge=MAC_ONLY))
+            + R.card("Most skipped", R.simple_list(skipped, "No skips logged."), "blue", badge=MAC_ONLY)
+            + records_cards(plays))
     slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-") if label else ""
     name = f"{start}_to_{end_incl}" + (f"_{slug}" if slug else "")
     d = SL.data_for(con, "custom", plays, None, start, end)
@@ -312,6 +340,7 @@ def custom(con, start, end_incl, label=None, slides_only=False):
         ("peak", SL.peak(d, None)),
         ("streak", SL.streak(streak, s_from, s_to)),
         ("best-week", SL.best_bucket("Your biggest week", weeks, lambda l: f"Week {int(l[1:])}")),
+        _records_slide(plays),
     ]) if d else []
     if slides_only:
         return "custom", name, sl
@@ -327,6 +356,11 @@ def save(kind, name, html):
     folder = paths.REPORTS / kind
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / f"{name}.html"
+    if kind in ("weekly", "monthly", "yearly", "alltime"):
+        # Shown only when opened through `music-wrapped serve`, which makes the images on demand.
+        html = html.replace("<!--story-images-->", (
+            f'<a class="story-link" hidden href="../../stories/{kind}/{name}/">Story images ↗</a>'
+            '<script>if (/^https?:/.test(location.protocol)) document.querySelector(".story-link").hidden = false</script>'), 1)
     out.write_text(artwork.inject(html), encoding="utf-8")
     shutil.copyfile(out, folder / "latest.html")
     write_index()
@@ -379,8 +413,10 @@ def write_index():
         con = db.connect()
         start, end = week_of(date.today())
         d = SL.data_for(con, "weekly", S.plays_between(con, start, end), None, start, end)
-        buttons = [(f"{k}/latest.html", t) for k, t in (("weekly", "Open this week →"), ("yearly", "This year"),
-                                                       ("monthly", "Latest month"), ("alltime", "All time"))
+        buttons = [(f"{k}/latest.html{h}", t) for k, h, t in (("weekly", "", "Open this week →"),
+                                                              ("weekly", "#play", "▶ Play story"),
+                                                              ("yearly", "", "This year"), ("monthly", "", "Latest month"),
+                                                              ("alltime", "", "All time"))
                    if (paths.REPORTS / k / "latest.html").exists()]
         feature = R.feature(d, buttons)
         con.close()

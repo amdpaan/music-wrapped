@@ -107,6 +107,26 @@ html.static .hint{display:none}
   background:rgba(9,9,13,.7);border:1px solid rgba(255,255,255,.12);padding:7px 12px;border-radius:999px;transition:opacity .3s}
 .skip.gone{opacity:0;pointer-events:none}
 html.static .dots,html.static .skip{display:none}
+/* tap-through story mode (#play): one slide at a time, progress bars, tap / hold like Instagram */
+.play-btn{position:fixed;top:14px;left:16px;z-index:6;font-size:13px;font-weight:800;color:#07130b;text-decoration:none;
+  background:#1ed760;padding:7px 13px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.35);transition:opacity .3s}
+.play-btn.gone{opacity:0;pointer-events:none}
+html.static .play-btn{display:none}
+.pbars,.pclose{display:none}
+html.playing,html.playing body{overflow:hidden;overscroll-behavior:none}
+html.playing .story .slide{display:none}
+html.playing .story .slide.cur{display:flex;position:fixed;inset:0;z-index:20;height:100%;min-height:0;background:#09090d;
+  padding:calc(env(safe-area-inset-top,0px) + 34px) clamp(10px,2vmin,28px) calc(env(safe-area-inset-bottom,0px) + 12px);
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none}
+html.playing .story{z-index:30}   /* .story is its own stacking context: lift all of it above main */
+html.playing .dots,html.playing .skip,html.playing .play-btn{display:none}
+html.playing .pbars{display:flex;position:fixed;z-index:31;left:clamp(14px,2.4vmin,34px);right:clamp(14px,2.4vmin,34px);
+  top:calc(env(safe-area-inset-top,0px) + 14px);gap:4px}
+.pbars i{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.3);overflow:hidden}
+.pbars b{display:block;height:100%;width:0;background:#fff}
+html.playing .pclose{display:block;position:fixed;z-index:32;right:clamp(14px,2.4vmin,34px);top:calc(env(safe-area-inset-top,0px) + 26px);
+  width:36px;height:36px;border-radius:50%;border:0;background:rgba(0,0,0,.35);color:#fff;font-size:17px;font-weight:800;cursor:pointer}
+html.playing.paused .pbars{opacity:.55}
 @media (min-aspect-ratio:5/4){
   .split{flex-direction:row;align-items:center}
   .big-cover{width:min(56vh,520px);height:min(56vh,520px);font-size:min(22vh,220px)}
@@ -178,6 +198,111 @@ JS = """<script>
   }, {threshold: 0.05}).observe(details);
 })();
 </script>"""
+
+PLAY_JS = r"""<script>
+(function () {
+  // Tap-through story mode: #play (or the Play button) shows the slides one at a time, full screen.
+  // Tap right = next, tap left = back, hold = pause, Esc / ✕ = back to the page. 6 s per slide.
+  var slides = [].slice.call(document.querySelectorAll(".story .slide"));
+  var btn = document.querySelector(".play-btn");
+  if (!slides.length) return;
+  var root = document.documentElement, DUR = 6000, i = 0, on = false, paused = false;
+  var elapsed = 0, t0 = 0, down = 0, downX = 0;
+  var bars = document.createElement("div");
+  bars.className = "pbars";
+  slides.forEach(function () { var b = document.createElement("i"); b.appendChild(document.createElement("b")); bars.appendChild(b); });
+  var close = document.createElement("button");
+  close.className = "pclose"; close.type = "button"; close.textContent = "✕"; close.setAttribute("aria-label", "Close the story");
+  document.body.appendChild(bars); document.body.appendChild(close);
+  var fmt = window.Intl ? new Intl.NumberFormat() : null;
+  function countUp(el) {
+    var to = +el.getAttribute("data-count"), s0 = null;
+    if (!to || root.classList.contains("static")) return;
+    function step(t) {
+      s0 = s0 || t;
+      var p = Math.min(1, (t - s0) / 1200), v = Math.round(to * (1 - Math.pow(1 - p, 3)));
+      el.textContent = fmt ? fmt.format(v) : v;
+      if (p < 1 && on) requestAnimationFrame(step); else el.textContent = fmt ? fmt.format(to) : to;
+    }
+    requestAnimationFrame(step);
+  }
+  function fill(j, f) { bars.children[j].firstChild.style.width = (f * 100) + "%"; }
+  function show(n) {
+    if (n >= slides.length) { stop(true); return; }
+    i = Math.max(0, n);
+    slides.forEach(function (s, j) { s.classList.toggle("cur", j === i); fill(j, j < i ? 1 : 0); });
+    var s = slides[i];
+    s.classList.remove("in"); void s.offsetWidth; s.classList.add("in");   // replay the reveal
+    [].forEach.call(s.querySelectorAll("[data-count]"), countUp);
+    elapsed = 0; t0 = performance.now();
+  }
+  function tick(t) {
+    if (!on) return;
+    if (!paused) {
+      var p = (elapsed + t - t0) / DUR;
+      fill(i, Math.min(1, p));
+      if (p >= 1) show(i + 1);
+    }
+    requestAnimationFrame(tick);
+  }
+  function pause(yes) {
+    if (yes === paused) return;
+    var now = performance.now();
+    if (yes) elapsed += now - t0; else t0 = now;
+    paused = yes;
+    root.classList.toggle("paused", yes);
+  }
+  function start(n) {
+    if (on) return;
+    on = true; paused = false;
+    root.classList.add("playing");
+    if (location.hash !== "#play") history.replaceState(null, "", "#play");
+    show(n || 0);
+    requestAnimationFrame(tick);
+  }
+  function stop(toDetails) {
+    if (!on) return;
+    on = false;
+    root.classList.remove("playing", "paused");
+    slides.forEach(function (s) { s.classList.remove("cur"); });
+    history.replaceState(null, "", location.pathname + location.search);
+    var target = toDetails ? document.getElementById("details") : slides[i];
+    if (target) target.scrollIntoView();
+  }
+  if (btn) btn.addEventListener("click", function (e) { e.preventDefault(); start(0); });
+  close.addEventListener("click", function (e) { e.stopPropagation(); stop(false); });
+  document.addEventListener("pointerdown", function (e) {
+    if (!on || e.target === close || (e.target.closest && e.target.closest("a"))) return;
+    down = performance.now(); downX = e.clientX;
+    pause(true);
+  });
+  document.addEventListener("pointerup", function (e) {
+    if (!on || !down) return;
+    var held = performance.now() - down;
+    down = 0;
+    pause(false);
+    if (held < 300) show(downX < window.innerWidth / 3 ? i - 1 : i + 1);   // a tap, not a hold
+  });
+  document.addEventListener("pointercancel", function () { down = 0; if (on) pause(false); });
+  document.addEventListener("click", function (e) {   // "See all the details" inside a slide
+    var a = on && e.target.closest && e.target.closest("a");
+    if (a && a.getAttribute("href") === "#details") { e.preventDefault(); stop(true); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (!on) return;
+    if (e.key === "Escape") stop(false);
+    else if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); show(i + 1); }
+    else if (e.key === "ArrowLeft") show(i - 1);
+  });
+  document.addEventListener("visibilitychange", function () { if (on) pause(document.hidden); });
+  var details = document.getElementById("details");
+  if (details && btn && "IntersectionObserver" in window) new IntersectionObserver(function (es) {
+    btn.classList.toggle("gone", es[0].isIntersecting);
+  }, {threshold: 0.05}).observe(details);
+  if (location.hash === "#play") start(0);
+})();
+</script>"""
+JS += PLAY_JS
 
 
 # ---------- helpers ----------
@@ -462,6 +587,33 @@ def changes(d, words, prev, streak, new_artists=0):
 {_rv(f'<div class="sk">Compared with {R.e(label)}</div>')}
 {head}
 <ol class="sl ch">{"".join(rows)}</ol>""")
+
+
+def duration(start, end):
+    """'2 h 14 min' / '48 min' between two datetimes."""
+    m = max(1, round((end - start).total_seconds() / 60))
+    return f"{m // 60} h {m % 60} min" if m >= 60 else f"{m} min"
+
+
+def records(session, replay):
+    """session: stats.longest_session(); replay: stats.most_replayed_day()."""
+    if not session and not replay:
+        return ""
+    parts = [_rv('<div class="sk">Your records</div>')]
+    if session:
+        start, end, n = session
+        parts += [_rv(f'<div class="sh">{duration(start, end)}</div>', 1),
+                  _rv(f'<div class="sm">Your longest listening session · {start:%a %-d %b}, '
+                      f'{start:%H:%M}–{end:%H:%M} · {plural(n, "song")}</div>', 2),
+                  _rv('<div class="ss">Mac only · breaks under 10 minutes don’t end a session</div>', 3)]
+    if replay:
+        r, day = replay
+        parts.append(_rv(f'<div class="ss" style="margin-top:2vmin">Most replayed in one day · {day:%a %-d %b}</div>', 4))
+        parts.append(_rv(f'<ol class="sl"><li>{R.cover(r.pid, r.name, big=True)}<span class="t"><b>{R.e(r.name)}</b>'
+                         f'<span>{R.e(r.sub)}</span></span><span class="v">{r.plays}×</span></li></ol>', 5))
+        if not session:
+            parts.insert(1, _rv('<div class="sh">On a loop</div>', 1))
+    return _panel("blue", "\n".join(parts))
 
 
 def best_bucket(title, buckets, fmt_label):
