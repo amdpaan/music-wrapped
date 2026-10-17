@@ -204,9 +204,10 @@ cached in `artwork/640/`).
 
 **Story images**: run `music-wrapped story` and AirDrop the PNGs to your phone. They land in Photos.
 
-**The full reports, over Wi-Fi**: run `music-wrapped serve` on the Mac. It prints a link like
-`http://Your-Mac.local:8000/Xy3k9Q/` and copies it to the clipboard (with Handoff, you can paste it straight
-into Safari on the iPhone). You get the home page, every report and the live weekly page with all the animations.
+**The full reports, over Wi-Fi**: run `music-wrapped serve` on the Mac. It shows a **QR code** in the
+Terminal: point your iPhone's camera at it and tap the link. It also prints the link (like
+`http://Your-Mac.local:8000/Xy3k9Q/`) and copies it to the clipboard (with Handoff, you can paste it straight
+into Safari on the iPhone). The QR code is drawn by macOS itself (CoreImage, through the story renderer). You get the home page, every report and the live weekly page with all the animations.
 In Safari, Share → Add to Home Screen makes it feel like an app.
 
 - It only shares the reports folder, read-only, and only under that secret link. Folder listings, your

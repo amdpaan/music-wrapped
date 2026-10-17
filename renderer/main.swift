@@ -3,11 +3,31 @@
 // that many pixels, whatever the screen's scale.
 //
 // Usage: music-wrapped-render <width> <height> <page.html> <out.png> [<page.html> <out.png> ...]
+//        music-wrapped-render --qr <text>   prints a QR code as rows of 0/1 (1 = dark), for `serve`
 
 import AppKit
+import CoreImage
 import WebKit
 
 let args = CommandLine.arguments
+
+if args.count == 3 && args[1] == "--qr" {
+    let filter = CIFilter(name: "CIQRCodeGenerator")!
+    filter.setValue(args[2].data(using: .utf8)!, forKey: "inputMessage")
+    filter.setValue("M", forKey: "inputCorrectionLevel")
+    guard let image = filter.outputImage,
+          let cg = CIContext().createCGImage(image, from: image.extent) else { exit(1) }
+    // One pixel per module: draw into an 8-bit grey bitmap and read it back.
+    let w = cg.width, h = cg.height
+    var pixels = [UInt8](repeating: 255, count: w * h)
+    let ctx = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                        space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)!
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    for y in 0..<h {
+        print(String((0..<w).map { pixels[y * w + $0] < 128 ? "1" : "0" }))
+    }
+    exit(0)
+}
 let width = args.count > 1 ? Double(args[1]) ?? 0 : 0
 let height = args.count > 2 ? Double(args[2]) ?? 0 : 0
 if args.count < 5 || (args.count - 3) % 2 != 0 || width <= 0 || height <= 0 {
