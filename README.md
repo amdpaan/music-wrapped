@@ -182,6 +182,11 @@ stories: full screen, one at a time, 6 seconds each, with progress bars. Tap the
 slide, the left side to go back, hold to pause; ✕ or Esc returns to the page. Links ending in `#play` start
 it straight away, which is handy as a Home Screen bookmark on your iPhone.
 
+**Motion**: headlines rise in letter by letter (kinetic type), kickers tighten from wide spacing, big numbers pop in,
+and giant outlined words drift across the intro and summary. Behind every slide, soft colour blobs slowly
+morph shape (SVG path morphing, paused on slides you can't see), and in Play story each slide pours in like
+liquid from where you tapped. Everything stays still with macOS's Reduce Motion setting and in story images.
+
 Every report also has **your records**: the longest listening session (back-to-back plays with breaks under
 10 minutes; Mac only, since only Mac plays have exact times) and the song you replayed most in a single day.
 

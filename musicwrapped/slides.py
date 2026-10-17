@@ -5,6 +5,9 @@ The same slides open every report (scroll-snapping, animated) and become the sto
 """
 
 import calendar
+import math
+import random
+import zlib
 from collections import Counter
 
 from . import render as R, stats as S
@@ -99,6 +102,41 @@ html.js .in .gb .tr i,html.js .in .hist i{transform:none}
 html.static .rv,html.static .gb .tr i,html.static .hist i{opacity:1;transform:none;transition:none}
 html.static .hint{display:none}
 @media (prefers-reduced-motion:reduce){html.js .rv,html.js .gb .tr i,html.js .hist i{opacity:1;transform:none;transition:none}.hint{animation:none}}
+/* ---- motion: liquid blobs behind every panel, kinetic type on reveal ---- */
+.pn > .liquid{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.pn > .marquee{z-index:0}
+.pn > :not(.liquid):not(.marquee):not(.hint){position:relative;z-index:1}
+.hint{z-index:1}
+.marquee{position:absolute;left:-20%;right:-20%;top:var(--top,58%);transform:rotate(-7deg);pointer-events:none;
+  overflow:hidden;white-space:nowrap;line-height:1}
+.marquee span{display:inline-block;padding-right:.35em;font-size:clamp(90px,24vmin,320px);font-weight:900;letter-spacing:-.04em;
+  color:transparent;-webkit-text-stroke:max(1.5px,.25vmin) rgba(255,255,255,var(--a,.2));animation:mq 26s linear infinite}
+.marquee.rev span{animation-direction:reverse}
+@keyframes mq{to{transform:translateX(-100%)}}
+/* letters rise from behind a mask; split by JS only while they animate, then the plain text is restored */
+.kw{display:inline-block;overflow:hidden;vertical-align:bottom;padding:0 .02em .12em;margin:0 -.02em -.12em}
+.kc{display:inline-block;transform:translateY(108%) rotate(12deg);transform-origin:0 100%;
+  transition:transform .9s cubic-bezier(.2,1.25,.3,1);transition-delay:calc(var(--d,0)*120ms + var(--i,0)*26ms)}
+.in .kc{transform:none}
+html.js .in .sk{animation:track 1.1s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--d,0)*120ms)}
+@keyframes track{from{letter-spacing:.7em;opacity:0}to{letter-spacing:.16em;opacity:.85}}
+html.js .in .sn{animation:pop .95s cubic-bezier(.2,1.35,.3,1) both;animation-delay:calc(var(--d,0)*120ms + 80ms);transform-origin:0 70%}
+@keyframes pop{from{transform:scale(.35) skewX(-14deg);opacity:0}60%{opacity:1}to{transform:none;opacity:1}}
+/* static pages (story PNGs, live reloads): everything in place, nothing moving. As specific as the rules above. */
+html.static .marquee span,html.static .in .sk,html.static .in .sn{animation:none}
+html.static .kc,html.static .in .kc{transform:none;transition:none}
+@media (prefers-reduced-motion:reduce){.marquee span,html.js .in .sk,html.js .in .sn{animation:none}}
+/* play mode: the next slide pours in from where you tapped, with a wobbling liquid edge */
+html.playing .story .slide.prev{display:flex;position:fixed;inset:0;z-index:19;height:100%;min-height:0;background:#09090d;
+  padding:calc(env(safe-area-inset-top,0px) + 34px) clamp(10px,2vmin,28px) calc(env(safe-area-inset-bottom,0px) + 12px)}
+html.playing .story .slide.cur{z-index:20}
+html.playing .story .slide.cur.pour{animation:pour .8s cubic-bezier(.65,0,.25,1) both}
+@keyframes pour{
+  0%{clip-path:ellipse(0% 0% at var(--x,85%) var(--y,50%))}
+  45%{clip-path:ellipse(46% 38% at var(--x,85%) var(--y,50%))}
+  70%{clip-path:ellipse(92% 104% at var(--x,85%) var(--y,50%))}
+  100%{clip-path:ellipse(160% 160% at var(--x,85%) var(--y,50%))}}
+@media (prefers-reduced-motion:reduce){html.playing .story .slide.cur.pour{animation:none}}
 /* slide dots + skip link */
 .dots{position:fixed;right:clamp(8px,1.6vw,22px);top:50%;transform:translateY(-50%);z-index:5;display:flex;flex-direction:column;gap:10px}
 .dots a{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,.28);display:block}
@@ -184,6 +222,7 @@ JS = """<script>
       var s = e.target, i = slides.indexOf(s);
       [].forEach.call(dots.children, function (d, j) { d.classList.toggle("on", j === i); });
       if (!s.classList.contains("in")) {
+        if (window.mwEnter) window.mwEnter(s);
         s.classList.add("in");
         [].forEach.call(s.querySelectorAll("[data-count]"), countUp);
       }
@@ -198,6 +237,63 @@ JS = """<script>
   }, {threshold: 0.05}).observe(details);
 })();
 </script>"""
+
+KINETIC_JS = r"""<script>
+(function () {
+  // Kinetic type: before a slide's reveal, its headlines are split into letters (words for long
+  // ones) that rise in one after another; the plain text comes back once they've landed, so
+  // kerning and line breaks are exactly as designed. Off for Reduce Motion and static pages.
+  var root = document.documentElement;
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function split(el) {
+    if (el.getAttribute("data-k")) return;
+    var text = el.textContent, words = text.split(/(\s+)/), i = 0, longWord = words.some(function (w) { return w.length > 14; });
+    var perLetter = text.length <= 26 && !longWord;
+    el.setAttribute("data-k", text);
+    el.setAttribute("aria-label", text);
+    el.textContent = "";
+    words.forEach(function (w) {
+      if (!w) return;
+      if (/^\s+$/.test(w)) { el.appendChild(document.createTextNode(w)); return; }
+      var kw = document.createElement("span");
+      kw.className = "kw"; kw.setAttribute("aria-hidden", "true");
+      (perLetter ? Array.from(w) : [w]).forEach(function (c) {
+        var kc = document.createElement("span");
+        kc.className = "kc"; kc.textContent = c; kc.style.setProperty("--i", i++);
+        kw.appendChild(kc);
+      });
+      el.appendChild(kw);
+    });
+    clearTimeout(el._k);
+    el._k = setTimeout(function () { unsplit(el); }, 2600 + i * 26);
+  }
+  function unsplit(el) {
+    var t = el.getAttribute("data-k");
+    if (t === null) return;
+    el.textContent = t;
+    el.removeAttribute("data-k");
+  }
+  window.mwEnter = function (slide) {
+    if (reduce || root.classList.contains("static")) return;
+    [].forEach.call(slide.querySelectorAll(".sh"), split);
+    void slide.offsetWidth;   // let the letters start below their mask before .in is added
+  };
+  window.mwMorph = function (slide, on) {   // run the liquid shapes only where they can be seen
+    [].forEach.call(slide.querySelectorAll("svg.liquid"), function (svg) {
+      if (svg.pauseAnimations) { if (on && !reduce) svg.unpauseAnimations(); else svg.pauseAnimations(); }
+    });
+  };
+  var slides = [].slice.call(document.querySelectorAll(".story .slide"));
+  if (root.classList.contains("static")) return;
+  slides.forEach(function (s) { window.mwMorph(s, false); });
+  if (!("IntersectionObserver" in window)) return;
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) { if (!root.classList.contains("playing")) window.mwMorph(e.target, e.isIntersecting); });
+  }, {threshold: 0});
+  slides.forEach(function (s) { io.observe(s); });
+})();
+</script>"""
+JS = KINETIC_JS + JS
 
 PLAY_JS = r"""<script>
 (function () {
@@ -227,12 +323,27 @@ PLAY_JS = r"""<script>
     requestAnimationFrame(step);
   }
   function fill(j, f) { bars.children[j].firstChild.style.width = (f * 100) + "%"; }
+  var pourX = "85%", pourY = "50%", prevTimer = 0;
   function show(n) {
     if (n >= slides.length) { stop(true); return; }
+    var from = i;
     i = Math.max(0, n);
-    slides.forEach(function (s, j) { s.classList.toggle("cur", j === i); fill(j, j < i ? 1 : 0); });
+    slides.forEach(function (s, j) {
+      s.classList.toggle("cur", j === i);
+      s.classList.toggle("prev", on && j === from && from !== i);
+      s.classList.remove("pour");
+      fill(j, j < i ? 1 : 0);
+      if (window.mwMorph) window.mwMorph(s, j === i);
+    });
     var s = slides[i];
-    s.classList.remove("in"); void s.offsetWidth; s.classList.add("in");   // replay the reveal
+    s.style.setProperty("--x", pourX); s.style.setProperty("--y", pourY);
+    pourX = "85%"; pourY = "50%";
+    clearTimeout(prevTimer);
+    prevTimer = setTimeout(function () { slides.forEach(function (x) { x.classList.remove("prev"); }); }, 850);
+    s.classList.remove("in");
+    if (window.mwEnter) window.mwEnter(s);
+    void s.offsetWidth;
+    s.classList.add("in", "pour");   // replay the reveal, poured in like liquid
     [].forEach.call(s.querySelectorAll("[data-count]"), countUp);
     elapsed = 0; t0 = performance.now();
   }
@@ -264,7 +375,7 @@ PLAY_JS = r"""<script>
     if (!on) return;
     on = false;
     root.classList.remove("playing", "paused");
-    slides.forEach(function (s) { s.classList.remove("cur"); });
+    slides.forEach(function (s) { s.classList.remove("cur", "prev", "pour"); });
     history.replaceState(null, "", location.pathname + location.search);
     var target = toDetails ? document.getElementById("details") : slides[i];
     if (target) target.scrollIntoView();
@@ -281,7 +392,11 @@ PLAY_JS = r"""<script>
     var held = performance.now() - down;
     down = 0;
     pause(false);
-    if (held < 300) show(downX < window.innerWidth / 3 ? i - 1 : i + 1);   // a tap, not a hold
+    if (held < 300) {   // a tap, not a hold: pour the next slide in from the finger
+      pourX = (downX / window.innerWidth * 100).toFixed(1) + "%";
+      pourY = (e.clientY / window.innerHeight * 100).toFixed(1) + "%";
+      show(downX < window.innerWidth / 3 ? i - 1 : i + 1);
+    }
   });
   document.addEventListener("pointercancel", function () { down = 0; if (on) pause(false); });
   document.addEventListener("click", function (e) {   // "See all the details" inside a slide
@@ -307,11 +422,68 @@ JS += PLAY_JS
 
 # ---------- helpers ----------
 
+# Two soft blobs per panel colour (a light one and a contrasting one), drawn under the content.
+BLOBS = {
+    "hero": ("#ff4fa3", "#1ed760"), "green": ("#c9f7da", "#19c3b1"), "pink": ("#ffb3d6", "#7b3fe4"),
+    "purple": ("#ff4fa3", "#2f6bff"), "orange": ("#ffd166", "#ff4fa3"), "blue": ("#19c3b1", "#7b3fe4"),
+    "teal": ("#c9f7da", "#2f6bff"), "dark": ("#1ed760", "#7b3fe4"),
+}
+
+
+def _blob_path(rng, cx, cy, r, n=7, jitter=0.3):
+    """A smooth closed blob: n points around a circle, radius jittered, joined by Catmull-Rom curves.
+    The same n always gives the same commands, so SMIL can morph between any two."""
+    pts = []
+    for k in range(n):
+        a = 2 * math.pi * k / n + rng.uniform(-0.25, 0.25)
+        rr = r * (1 + rng.uniform(-jitter, jitter))
+        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
+    d = [f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"]
+    for k in range(n):
+        p0, p1, p2, p3 = pts[k - 1], pts[k], pts[(k + 1) % n], pts[(k + 2) % n]
+        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
+        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
+        d.append(f"C{c1[0]:.1f},{c1[1]:.1f} {c2[0]:.1f},{c2[1]:.1f} {p2[0]:.1f},{p2[1]:.1f}")
+    return " ".join(d) + "Z"
+
+
+def liquid(color, seed):
+    """SVG of two slowly morphing, drifting blobs with soft radial fills (seeded: same slide, same shapes)."""
+    rng = random.Random(seed)
+    spots = ((78, 22, 34), (18, 82, 38)) if seed % 2 else ((22, 20, 32), (82, 80, 40))
+    defs, shapes = [], []
+    for k, ((cx, cy, r), col) in enumerate(zip(spots, BLOBS.get(color, BLOBS["dark"]))):
+        gid = f"lq{seed % 100000}{k}"
+        defs.append(f'<radialGradient id="{gid}"><stop offset="0" stop-color="{col}" stop-opacity=".55"/>'
+                    f'<stop offset=".65" stop-color="{col}" stop-opacity=".22"/>'
+                    f'<stop offset="1" stop-color="{col}" stop-opacity="0"/></radialGradient>')
+        frames = [_blob_path(rng, cx, cy, r) for _ in range(3)]
+        dur = rng.uniform(10, 15)
+        shapes.append(
+            f'<path fill="url(#{gid})" d="{frames[0]}">'
+            f'<animate attributeName="d" dur="{dur:.1f}s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" '
+            f'keySplines=".45 0 .55 1;.45 0 .55 1;.45 0 .55 1" values="{frames[0]};{frames[1]};{frames[2]};{frames[0]}"/>'
+            f'<animateTransform attributeName="transform" type="translate" dur="{dur * 1.7:.1f}s" repeatCount="indefinite" '
+            f'calcMode="spline" keyTimes="0;.5;1" keySplines=".45 0 .55 1;.45 0 .55 1" '
+            f'values="0 0;{rng.uniform(-9, 9):.1f} {rng.uniform(-7, 7):.1f};0 0"/></path>')
+    return (f'<svg class="liquid" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" aria-hidden="true">'
+            f'<defs>{"".join(defs)}</defs>{"".join(shapes)}</svg>')
+
+
+def marquee(text, top="58%", rev=False, alpha=0.2):
+    """Giant outlined words drifting across a panel (kinetic type), two copies for a seamless loop."""
+    t = R.e(f"{text} · ")
+    return (f'<div class="marquee{" rev" if rev else ""}" style="--top:{top};--a:{alpha}" aria-hidden="true">'
+            f"<span>{t * 3}</span><span>{t * 3}</span></div>")
+
+
 def _panel(color, inner, cls=""):
+    seed = zlib.crc32(f"{color}{inner}".encode())
+    blobs = liquid(color, seed)
     if color == "hero":
-        return f'<section class="slide {cls}"><div class="pn hero">{inner}</div></section>'
+        return f'<section class="slide {cls}"><div class="pn hero">{blobs}{inner}</div></section>'
     bg, ink = PANELS[color]
-    return f'<section class="slide {cls}"><div class="pn" style="background:{bg};color:{ink}">{inner}</div></section>'
+    return f'<section class="slide {cls}"><div class="pn" style="background:{bg};color:{ink}">{blobs}{inner}</div></section>'
 
 
 def _rv(html, d=0):
@@ -425,7 +597,7 @@ def _when(h):
 def intro(words, label, d):
     tiles = "".join(R.cover(r.pid, r.name, big=True) for r in d.get("mosaic", [])[:9])
     mosaic = _rv(f'<div class="mosaic">{tiles}</div>', 2) if len(d.get("mosaic", [])) >= 3 else ""
-    return _panel("hero", f"""
+    return _panel("hero", marquee("WRAPPED", "82%") + f"""
 <div class="split">
   <div class="tx">
     {_rv(f'<div class="sk">{R.e(words["kicker"])}</div>')}
@@ -670,7 +842,7 @@ def summary(d, words):
     artists = "".join(f"<p><em>{i}</em>{R.e(r.name)}</p>" for i, r in enumerate(d["artists"], 1))
     songs = "".join(f"<p><em>{i}</em>{R.e(r.name)}</p>" for i, r in enumerate(d["songs"], 1))
     genre = R.e(d["genres"][0].name) if d["genres"] else "—"
-    return _panel("hero", f"""
+    return _panel("hero", marquee(a.name, "-2%", rev=True, alpha=0.13) + f"""
 {_rv(f'<div class="sk">{R.e(words["wrapped"])}</div>')}
 <div class="split" style="flex-direction:row;align-items:center">
   {_rv(_cover(a.pid, a.name, "big-cover sum-cover", True, "width:min(30vmin,360px);height:min(30vmin,360px);font-size:min(12vmin,140px)"), 1)}
