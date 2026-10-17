@@ -30,6 +30,12 @@ class Previews(unittest.TestCase):
         self.assertIsNone(best_match(res, "Paper Satellites", "Neon Harbor"))     # never another song
         self.assertIsNone(best_match([{"trackName": "Glass Ocean", "artistName": "Neon Harbor"}], "Glass Ocean", "Neon Harbor"))
 
+    def test_search_cleans_the_title(self):
+        from musicwrapped.previews import _clean
+        self.assertEqual(_clean("Paper Satellites (feat. Someone)"), "Paper Satellites")
+        self.assertEqual(_clean("Glass Ocean - Single Version"), "Glass Ocean")
+        self.assertEqual(_clean("(Intro)"), "(Intro)")      # never an empty search
+
     def test_off_by_default_and_attached_when_on(self):
         from musicwrapped import previews, slides
         from musicwrapped.stats import Row
@@ -54,8 +60,9 @@ class Previews(unittest.TestCase):
     def test_cache_skips_the_network(self):
         import time
         from musicwrapped import previews
-        cache = {"MY|Glass Ocean|Neon Harbor": {"url": "cached", "ts": int(time.time())},
-                 "MY|Nope|Nobody": {"url": None, "ts": int(time.time())}}
+        v = previews.VERSION
+        cache = {f"v{v}|MY|Glass Ocean|Neon Harbor": {"url": "cached", "ts": int(time.time())},
+                 f"v{v}|MY|Nope|Nobody": {"url": None, "ts": int(time.time())}}
         old = previews.urllib.request.urlopen
         previews.urllib.request.urlopen = lambda *a, **k: self.fail("no request expected")
         try:

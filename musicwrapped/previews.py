@@ -17,6 +17,7 @@ import urllib.request
 from . import paths
 
 CACHE = "previews.json"
+VERSION = "3"   # bump to retry cached misses after a lookup change
 HIT_DAYS, MISS_DAYS = 30, 7
 TIMEOUT = 4
 
@@ -54,6 +55,29 @@ def store():
     return "US"
 
 
+def _clean(title):
+    """'Glass Ocean (feat. Mira Sol)' -> 'Glass Ocean': extra words only confuse the search."""
+    return re.sub(r"\s*[(\[].*?[)\]]|\s+-\s+.*$", "", title or "").strip() or (title or "")
+
+
+def _search(params):
+    q = urllib.parse.urlencode(dict(params, media="music", entity="song"))
+    with urllib.request.urlopen(f"https://itunes.apple.com/search?{q}", timeout=TIMEOUT) as r:
+        return json.load(r).get("results", [])
+
+
+def _artist_songs(artist, country):
+    """Up to 200 songs from the artist's catalogue (Apple ID found by an exact name match), or []."""
+    q = urllib.parse.urlencode({"term": artist, "entity": "musicArtist", "limit": 10, "country": country})
+    with urllib.request.urlopen(f"https://itunes.apple.com/search?{q}", timeout=TIMEOUT) as r:
+        found = [a for a in json.load(r).get("results", []) if _norm(a.get("artistName")) == _norm(artist)]
+    if not found:
+        return []
+    q = urllib.parse.urlencode({"id": found[0]["artistId"], "entity": "song", "limit": 200, "country": country})
+    with urllib.request.urlopen(f"https://itunes.apple.com/lookup?{q}", timeout=TIMEOUT) as r:
+        return [x for x in json.load(r).get("results", []) if x.get("wrapperType") == "track"]
+
+
 def _norm(s):
     """Lowercase, no '(feat. …)' / '[Remastered]' / '- Single Version', letters and digits only."""
     s = re.sub(r"\s*[(\[].*?[)\]]", "", (s or "").lower())
@@ -79,6 +103,7 @@ def _load():
 
 
 def _save(cache):
+    cache = {k: v for k, v in cache.items() if k.startswith(f"v{VERSION}|")}
     tmp = paths.SUPPORT / (CACHE + ".tmp")
     tmp.write_text(json.dumps(cache, indent=1, ensure_ascii=False))
     tmp.replace(paths.SUPPORT / CACHE)
@@ -88,19 +113,26 @@ def lookup(title, artist, cache=None, country=None):
     """Preview URL for a song, from the cache or Apple's search (None if not found or offline)."""
     own = cache is None
     cache = _load() if own else cache
-    key = f"{(country or '').upper()}|{title}|{artist}"
+    key = f"v{VERSION}|{(country or '').upper()}|{title}|{artist}"
     hit = cache.get(key)
     now = time.time()
     if hit and now - hit["ts"] < (HIT_DAYS if hit.get("url") else MISS_DAYS) * 86400:
         return hit.get("url")
-    q = urllib.parse.urlencode({"term": f"{artist} {title}", "media": "music", "entity": "song", "limit": 10,
-                                "country": country or store()})
+    # Apple ranks search results by popularity, so a famous artist's other hits can crowd out the song
+    # (a well-known band's album track never showed up). So: a plain search first, then the artist's own
+    # catalogue (their Apple ID, then up to 200 of their songs), then the title alone.
+    country = country or store()
+    url = None
     try:
-        with urllib.request.urlopen(f"https://itunes.apple.com/search?{q}", timeout=TIMEOUT) as r:
-            results = json.load(r).get("results", [])
+        steps = (lambda: _search({"term": f"{_clean(title)} {artist}", "limit": 50, "country": country}),
+                 lambda: _artist_songs(artist, country),
+                 lambda: _search({"term": _clean(title), "attribute": "songTerm", "limit": 200, "country": country}))
+        for step in steps:
+            url = best_match(step(), title, artist)
+            if url:
+                break
     except Exception:   # offline, rate-limited, bad JSON: try again next time
         return hit.get("url") if hit else None
-    url = best_match(results, title, artist)
     cache[key] = {"url": url, "ts": int(now)}
     if own:
         _save(cache)
