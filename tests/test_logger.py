@@ -233,6 +233,11 @@ class LoggerTest(unittest.TestCase):
         time.sleep(3)
         self.np("Paused", elapsed=3)
         self.post("Stopped")
+        # nowplaying.json (for the widget) follows the other app: paused now, gone when it stops.
+        now = json.loads((Path(self.home) / "nowplaying.json").read_text())
+        self.assertEqual((now["state"], now["title"], now["artist"], now["source"]), ("paused", "YT Song", "YT Artist", "yt"))
+        self.np("Stopped")
+        self.assertFalse((Path(self.home) / "nowplaying.json").exists())
         rows = self.rows()
         self.assertEqual(sorted(r["source"] for r in rows), ["mac", "yt"])
         yt = next(r for r in rows if r["source"] == "yt")

@@ -601,6 +601,22 @@ func saveArtwork(_ data: Data, pid: String) {
     }
 }
 
+/// What another app is playing or has paused, for the claude-widget's Now Playing card (it asks the
+/// Music app itself). Written only when something changes; removed when nothing is playing and when
+/// the logger starts or stops, so it's never stale.
+let nowPlayingPath = supportDir.appendingPathComponent("nowplaying.json")
+func writeNowPlaying(_ obj: [String: Any]?) {
+    guard let obj = obj else {
+        try? FileManager.default.removeItem(at: nowPlayingPath)
+        return
+    }
+    var o = obj
+    o["updated_at"] = isoLocal.string(from: Date())
+    if let d = try? JSONSerialization.data(withJSONObject: o, options: [.sortedKeys]) {
+        try? d.write(to: nowPlayingPath, options: .atomic)
+    }
+}
+
 /// Perl stub that loads music-wrapped-nowplaying.dylib (logger/nowplaying.m) and runs it.
 let perlStub = """
     require DynaLoader; my $l = DynaLoader::dl_load_file($ARGV[0], 0) or die DynaLoader::dl_error();
@@ -647,6 +663,7 @@ final class NowPlayingSource {
 
     func ended(_ status: Int32) {
         process = nil
+        writeNowPlaying(nil)
         // Hold the song in progress (clock stopped): if the helper comes back to the same song,
         // it carries on as one play; a different song finishes it.
         if var cur = tracker.current, let since = cur.playingSince {
@@ -686,6 +703,10 @@ final class NowPlayingSource {
             info["Total Time"] = NSNumber(value: ((o["duration"] as? Double) ?? 0) * 1000)
             if let e = o["elapsed"] as? Double { info["Player Position"] = NSNumber(value: e) }
             if let b64 = o["art"] as? String, let d = Data(base64Encoded: b64) { saveArtwork(d, pid: pid) }
+            writeNowPlaying(["state": state.lowercased(), "title": title, "artist": artist,
+                             "album": info["Album"] ?? "", "pid": pid, "source": tracker.source])
+        } else {
+            writeNowPlaying(nil)
         }
         heartbeat(info)
         if restored {
@@ -801,6 +822,7 @@ let nowPlayingCommand: [String]? = {
 let otherTracker = Tracker(db: db, refresher: tracker.refresher, source: "yt",
                            pendingURL: supportDir.appendingPathComponent("pending-yt.json"))
 var nowPlaying: NowPlayingSource?
+writeNowPlaying(nil)   // from a previous run; the helper's first line writes the current state
 if let cmd = nowPlayingCommand {
     log("also tracking other apps via Now Playing")
     nowPlaying = NowPlayingSource(tracker: otherTracker, command: cmd)
@@ -832,6 +854,7 @@ for sig in [SIGTERM, SIGINT] {
         tracker.suspend(Date())
         otherTracker.suspend(Date())
         nowPlaying?.process?.terminate()
+        writeNowPlaying(nil)
         exit(0)
     }
     src.resume()

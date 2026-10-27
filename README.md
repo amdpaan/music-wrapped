@@ -348,6 +348,7 @@ Everything personal lives outside the repo, in `$HOME/Library/Application Suppor
 ```
 plays.db              SQLite: plays (every play, kept forever), library (all-time stats), snapshots (log)
 summary.json          widget summary, rewritten after every play and report
+nowplaying.json       what another app (YT Music) is playing or has paused, for widgets; removed when it stops
 previews.json         cached preview links for Play story (only with `previews on`)
 pending.json          song in progress while the logger restarts (usually absent)
 heartbeat.json        when the logger last saw Music playing (health check)
