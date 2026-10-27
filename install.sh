@@ -19,6 +19,9 @@ mkdir -p "$SUPPORT/bin" "$LOGS" "$SUPPORT/reports" "$AGENTS"
 
 say "Building the logger"
 swiftc -O -o "$SUPPORT/bin/music-wrapped-logger" "$REPO/logger/main.swift"
+say "Building the Now Playing helper (YT Music and other apps)"
+clang -dynamiclib -O2 -fobjc-arc -framework Foundation -o "$SUPPORT/bin/music-wrapped-nowplaying.dylib" "$REPO/logger/nowplaying.m" \
+  || echo "  Could not build it; only the Music app will be tracked."
 say "Building the story renderer"
 swiftc -O -o "$SUPPORT/bin/music-wrapped-render" "$REPO/renderer/main.swift"
 say "Signing the logger (so macOS remembers its 'control Music' approval across updates)"

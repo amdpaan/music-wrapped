@@ -39,6 +39,9 @@ let configPath = supportDir.appendingPathComponent("config.json")
 let pendingPath = supportDir.appendingPathComponent("pending.json")
 let heartbeatPath = supportDir.appendingPathComponent("heartbeat.json")   // read by `music-wrapped health`
 let resumeWindow = 600.0       // resume a saved song only if we were stopped for under 10 min
+// Plays timed live on this Mac: 'mac' = the Music app, 'yt' = other apps via Now Playing (YT Music,
+// browsers). Same list as musicwrapped/stats.py LIVE.
+let liveSources = "('mac', 'yt')"
 
 func log(_ s: String) {
     let ts = ISO8601DateFormatter().string(from: Date())
@@ -112,11 +115,11 @@ final class DB {
     /// Inserts a play and returns its row id. `final: false` is the early row written when a song
     /// reaches the minimum: not a skip (yet); finish() updates it with the real listening time.
     @discardableResult
-    func insertPlay(_ p: Play, listened: Double, ended: Date, final: Bool = true) -> Int64? {
+    func insertPlay(_ p: Play, source: String, listened: Double, ended: Date, final: Bool = true) -> Int64? {
         let sql = """
             INSERT INTO plays (ts, played_at, title, artist, album, duration,
                                seconds_listened, skipped, source, persistent_id, ended_ts, genre)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'mac', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return nil }
@@ -130,9 +133,10 @@ final class DB {
         if p.duration > 0 { sqlite3_bind_double(st, 6, p.duration) } else { sqlite3_bind_null(st, 6) }
         sqlite3_bind_double(st, 7, listened.rounded())
         sqlite3_bind_int(st, 8, skipped ? 1 : 0)
-        if let pid = p.pid { sqlite3_bind_text(st, 9, pid, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 9) }
-        sqlite3_bind_int64(st, 10, Int64(ended.timeIntervalSince1970))
-        if let g = p.genre, !g.isEmpty { sqlite3_bind_text(st, 11, g, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 11) }
+        sqlite3_bind_text(st, 9, source, -1, SQLITE_TRANSIENT)
+        if let pid = p.pid { sqlite3_bind_text(st, 10, pid, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 10) }
+        sqlite3_bind_int64(st, 11, Int64(ended.timeIntervalSince1970))
+        if let g = p.genre, !g.isEmpty { sqlite3_bind_text(st, 12, g, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(st, 12) }
         if sqlite3_step(st) != SQLITE_DONE {
             log("insert failed: \(String(cString: sqlite3_errmsg(handle)))")
             return nil
@@ -142,9 +146,9 @@ final class DB {
 
     /// Finalises an early row: the real listening time, when it ended, and whether it was a skip.
     /// Returns false if the row is gone (e.g. removed by hand), so the caller can insert instead.
-    func updatePlay(_ id: Int64, _ p: Play, listened: Double, ended: Date) -> Bool {
+    func updatePlay(_ id: Int64, _ p: Play, source: String, listened: Double, ended: Date) -> Bool {
         var st: OpaquePointer?
-        let sql = "UPDATE plays SET seconds_listened = ?, skipped = ?, ended_ts = ? WHERE id = ? AND source = 'mac'"
+        let sql = "UPDATE plays SET seconds_listened = ?, skipped = ?, ended_ts = ? WHERE id = ? AND source = ?"
         guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return false }
         defer { sqlite3_finalize(st) }
         let skipped = p.duration > 0 && listened < p.duration * skipFraction
@@ -152,6 +156,7 @@ final class DB {
         sqlite3_bind_int(st, 2, skipped ? 1 : 0)
         sqlite3_bind_int64(st, 3, Int64(ended.timeIntervalSince1970))
         sqlite3_bind_int64(st, 4, id)
+        sqlite3_bind_text(st, 5, source, -1, SQLITE_TRANSIENT)
         guard sqlite3_step(st) == SQLITE_DONE else {
             log("update failed: \(String(cString: sqlite3_errmsg(handle)))")
             return false
@@ -181,7 +186,7 @@ func writeSummary(_ db: DB) {
     guard let week = isoCalendar.dateInterval(of: .weekOfYear, for: now) else { return }
     let start = Int64(week.start.timeIntervalSince1970)
     let end = Int64(week.end.timeIntervalSince1970)
-    let listened = "CASE WHEN source = 'mac' THEN seconds_listened ELSE COALESCE(duration, seconds_listened) END"
+    let listened = "CASE WHEN source IN \(liveSources) THEN seconds_listened ELSE COALESCE(duration, seconds_listened) END"
     let tot = db.rows("SELECT COALESCE(SUM(\(listened)), 0), COUNT(*) FROM plays WHERE ts >= ? AND ts < ?", [start, end]).first ?? ["0", "0"]
     let artist = db.rows("""
         SELECT artist, COUNT(*) n FROM plays WHERE ts >= ? AND ts < ? AND COALESCE(artist, '') != ''
@@ -298,7 +303,8 @@ struct Play: Codable {
     let start: Date
     var listened: Double = 0       // seconds accumulated before the current playing stretch
     var playingSince: Date?        // nil while paused
-    var lastPosition: Double?      // poll mode only, used to spot a repeat of the same track
+    var lastPosition: Double?      // poll mode and other apps, used to spot a repeat of the same track
+    var positionAt: Date?          // when lastPosition was reported
     var rowId: Int64? = nil        // set once the play has been counted (at the minimum); finish() updates it
 
     func total(at now: Date) -> Double {
@@ -314,14 +320,20 @@ struct Pending: Codable {
 final class Tracker {
     let db: DB
     let refresher: Refresher
+    let source: String             // plays.source for this tracker's rows
+    let pendingURL: URL            // where suspend() saves the song in progress
     var current: Play? { didSet { scheduleCount() } }
     var wasPlayingBeforeSleep = false
     var countTimer: DispatchWorkItem?
 
-    init(db: DB, refresher: Refresher) {
+    init(db: DB, refresher: Refresher, source: String = "mac", pendingURL: URL = pendingPath) {
         self.db = db
         self.refresher = refresher
+        self.source = source
+        self.pendingURL = pendingURL
     }
+
+    var tag: String { source == "mac" ? "" : " [\(source)]" }
 
     /// Handles one playerInfo payload (from a notification, or synthesized by poll mode).
     func handle(_ info: [AnyHashable: Any]) {
@@ -338,7 +350,10 @@ final class Tracker {
             // Same track as before: pause / resume, or a repeat of the same track.
             var repeated = false
             if let pos = position, let last = cur.lastPosition {
-                repeated = pos + 5 < last && cur.total(at: now) >= minSeconds
+                // Back near the start (a repeat), not just a seek back within the song. Positions only
+                // arrive with events, so compare with where the song should be by now.
+                let expected = last + (cur.playingSince != nil ? now.timeIntervalSince(cur.positionAt ?? now) : 0)
+                repeated = pos + 5 < expected && pos < 15 && cur.total(at: now) >= minSeconds
             } else if position == nil, state == "Playing", cur.playingSince != nil, cur.duration > 0 {
                 repeated = cur.total(at: now) >= cur.duration * 0.9
             }
@@ -354,6 +369,7 @@ final class Tracker {
                 cur.playingSince = nil
             }
             cur.lastPosition = position
+            cur.positionAt = now
             current = cur
         } else {
             finish(now)
@@ -365,6 +381,7 @@ final class Tracker {
         var p = p
         p.playingSince = playing ? now : nil
         p.lastPosition = position
+        p.positionAt = now
         current = p
     }
 
@@ -403,12 +420,12 @@ final class Tracker {
         var listened = cur.total(at: now)
         if cur.duration > 0 { listened = min(listened, cur.duration) }
         guard listened >= minSeconds else { return scheduleCount() }
-        guard let id = db.insertPlay(cur, listened: listened, ended: now, final: false) else { return }
+        guard let id = db.insertPlay(cur, source: source, listened: listened, ended: now, final: false) else { return }
         cur.rowId = id
         current = cur
         writeSummary(db)
         refresher.trigger()
-        log("counted: \(cur.artist) – \(cur.title)")
+        log("counted\(tag): \(cur.artist) – \(cur.title)")
     }
 
     /// Ends the current play: finalises its row, or stores it if it was listened to long enough.
@@ -417,15 +434,15 @@ final class Tracker {
         current = nil
         var listened = p.total(at: now)
         if p.duration > 0 { listened = min(listened, p.duration) }
-        if let id = p.rowId, db.updatePlay(id, p, listened: max(listened, minSeconds), ended: now) {
+        if let id = p.rowId, db.updatePlay(id, p, source: source, listened: max(listened, minSeconds), ended: now) {
             // already counted; this just records how it ended
         } else {
             guard listened >= minSeconds else { return }
-            db.insertPlay(p, listened: listened, ended: now)
+            db.insertPlay(p, source: source, listened: listened, ended: now)
         }
         writeSummary(db)
         refresher.trigger()
-        log("play: \(p.artist) – \(p.title) (\(Int(listened))s)")
+        log("play\(tag): \(p.artist) – \(p.title) (\(Int(listened))s)")
     }
 
     /// Saves the song in progress instead of logging it (we're being stopped; see restore()).
@@ -434,15 +451,15 @@ final class Tracker {
         p.listened = p.total(at: now)
         p.playingSince = nil
         let pending = Pending(play: p, savedAt: now)
-        if let data = try? JSONEncoder().encode(pending) { try? data.write(to: pendingPath, options: .atomic) }
+        if let data = try? JSONEncoder().encode(pending) { try? data.write(to: pendingURL, options: .atomic) }
     }
 
     /// Runs once at startup. `info` is what Music is doing right now (nil if it isn't running).
     func restore(_ info: [AnyHashable: Any]?, now: Date) {
         var pending: Pending?
-        if let d = try? Data(contentsOf: pendingPath) {
+        if let d = try? Data(contentsOf: pendingURL) {
             pending = try? JSONDecoder().decode(Pending.self, from: d)
-            try? FileManager.default.removeItem(at: pendingPath)
+            try? FileManager.default.removeItem(at: pendingURL)
         }
         let state = info?["Player State"] as? String ?? "Stopped"
         let incoming = state == "Stopped" ? nil : info.flatMap { makePlay($0, now: now) }
@@ -450,7 +467,7 @@ final class Tracker {
             var cur = p.play
             cur.playingSince = state == "Playing" ? now : nil
             current = cur
-            log("resumed: \(cur.artist) – \(cur.title) (\(Int(cur.listened))s so far)")
+            log("resumed\(tag): \(cur.artist) – \(cur.title) (\(Int(cur.listened))s so far)")
             return
         }
         if let p = pending {
@@ -459,7 +476,7 @@ final class Tracker {
         }
         if let info = info, incoming != nil {
             handle(info)
-            if let cur = current { log("already playing: \(cur.artist) – \(cur.title)") }
+            if let cur = current { log("already playing\(tag): \(cur.artist) – \(cur.title)") }
         }
     }
 
@@ -541,6 +558,133 @@ func heartbeat(_ info: [AnyHashable: Any]) {
     let obj: [String: Any] = ["last_playing": isoLocal.string(from: lastHeartbeat),
                               "last_playing_ts": Int(lastHeartbeat.timeIntervalSince1970)]
     if let d = try? JSONSerialization.data(withJSONObject: obj) { try? d.write(to: heartbeatPath, options: .atomic) }
+}
+
+// MARK: - Other apps (Now Playing)
+
+/// A stable id for a song from another app, shaped like Music's 16-character persistent IDs so
+/// reports and artwork handle it the same way: "YT" + 14 hex digits of FNV-1a(title, artist).
+func syntheticPID(_ title: String, _ artist: String) -> String {
+    var h: UInt64 = 0xcbf29ce484222325
+    for b in "\(title.lowercased())\u{1f}\(artist.lowercased())".utf8 {
+        h ^= UInt64(b)
+        h = h &* 0x100000001b3
+    }
+    return "YT" + String(format: "%014llX", h & 0x00FF_FFFF_FFFF_FFFF)
+}
+
+/// Saves a cover from Now Playing as the JPEGs musicwrapped/artwork.py uses (160 px and 640 px).
+func saveArtwork(_ data: Data, pid: String) {
+    let base = supportDir.appendingPathComponent("artwork")
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return }
+    for (dir, size) in [(base, 160), (base.appendingPathComponent("640"), 640)] {
+        let out = dir.appendingPathComponent("\(pid).jpg")
+        if FileManager.default.fileExists(atPath: out.path) { continue }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                     kCGImageSourceThumbnailMaxPixelSize: size,
+                                     kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary),
+              let dest = CGImageDestinationCreateWithURL(out as CFURL, "public.jpeg" as CFString, 1, nil) else { continue }
+        CGImageDestinationAddImage(dest, img, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        CGImageDestinationFinalize(dest)
+    }
+}
+
+/// Perl stub that loads music-wrapped-nowplaying.dylib (logger/nowplaying.m) and runs it.
+let perlStub = """
+    require DynaLoader; my $l = DynaLoader::dl_load_file($ARGV[0], 0) or die DynaLoader::dl_error();
+    my $s = DynaLoader::dl_find_symbol($l, "mw_stream") or die "mw_stream not found";
+    DynaLoader::dl_install_xsub("main::mwstream", $s); mwstream();
+    """
+
+/// Runs the Now Playing helper and feeds its lines to a tracker (source 'yt'). Restarts it if it
+/// stops. The first line also restores a song saved by suspend().
+final class NowPlayingSource {
+    let tracker: Tracker
+    let command: [String]
+    var process: Process?
+    var buffer = Data()
+    var restored = false
+    var failures = 0
+
+    init(tracker: Tracker, command: [String]) {
+        self.tracker = tracker
+        self.command = command
+    }
+
+    func start() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: command[0])
+        p.arguments = Array(command.dropFirst())
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.standardError
+        out.fileHandleForReading.readabilityHandler = { h in
+            let d = h.availableData
+            DispatchQueue.main.async { self.received(d) }
+        }
+        p.terminationHandler = { proc in
+            DispatchQueue.main.async { self.ended(proc.terminationStatus) }
+        }
+        do {
+            try p.run()
+            process = p
+        } catch {
+            log("could not start the Now Playing helper: \(error)")
+        }
+    }
+
+    func ended(_ status: Int32) {
+        process = nil
+        // Hold the song in progress (clock stopped): if the helper comes back to the same song,
+        // it carries on as one play; a different song finishes it.
+        if var cur = tracker.current, let since = cur.playingSince {
+            cur.listened += Date().timeIntervalSince(since)
+            cur.playingSince = nil
+            tracker.current = cur
+        }
+        failures += 1
+        // Quick retries first, then every 10 min (e.g. if macOS stops allowing it).
+        let wait = failures <= 3 ? 10.0 : 600.0
+        log("Now Playing helper stopped (status \(status)); retrying in \(Int(wait)) s")
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) { self.start() }
+    }
+
+    func received(_ data: Data) {
+        buffer.append(data)
+        while let nl = buffer.firstIndex(of: 0x0A) {
+            let line = buffer[buffer.startIndex..<nl]
+            buffer.removeSubrange(buffer.startIndex...nl)
+            guard let o = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { continue }
+            failures = 0
+            handle(o)
+        }
+    }
+
+    func handle(_ o: [String: Any]) {
+        let state = o["state"] as? String ?? "Stopped"
+        var info: [AnyHashable: Any] = ["Player State": state]
+        if state != "Stopped" {
+            let title = o["title"] as? String ?? ""
+            let artist = o["artist"] as? String ?? ""
+            let pid = syntheticPID(title, artist)
+            info["Name"] = title
+            info["Artist"] = artist
+            info["Album"] = o["album"] as? String ?? ""
+            info["PersistentID"] = pid
+            info["Total Time"] = NSNumber(value: ((o["duration"] as? Double) ?? 0) * 1000)
+            if let e = o["elapsed"] as? Double { info["Player Position"] = NSNumber(value: e) }
+            if let b64 = o["art"] as? String, let d = Data(base64Encoded: b64) { saveArtwork(d, pid: pid) }
+        }
+        heartbeat(info)
+        if restored {
+            tracker.handle(info)
+        } else {
+            restored = true
+            tracker.restore(state == "Stopped" ? nil : info, now: Date())
+        }
+    }
 }
 
 // MARK: - Main
@@ -628,14 +772,45 @@ if mode == "poll" {
     }
 }
 
+// Other apps (YT Music, browsers) via the Now Playing helper. Off with config {"now_playing": false}.
+// Tests either give a fake helper (MUSIC_WRAPPED_NOWPLAYING_CMD, a program that prints the same
+// lines) or get none, so they never read what's really playing.
+let nowPlayingCommand: [String]? = {
+    if let cmd = env["MUSIC_WRAPPED_NOWPLAYING_CMD"] { return cmd == "none" ? nil : [cmd] }
+    if env["MUSIC_WRAPPED_NOTIFICATION"] != nil { return nil }
+    if let d = try? Data(contentsOf: configPath),
+       let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any], o["now_playing"] as? Bool == false { return nil }
+    let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+    let dylib = exe.deletingLastPathComponent().appendingPathComponent("music-wrapped-nowplaying.dylib").path
+    guard FileManager.default.fileExists(atPath: dylib) else {
+        log("Now Playing helper not installed (\(dylib)); only the Music app is tracked")
+        return nil
+    }
+    return ["/usr/bin/perl", "-e", perlStub, dylib]
+}()
+let otherTracker = Tracker(db: db, refresher: tracker.refresher, source: "yt",
+                           pendingURL: supportDir.appendingPathComponent("pending-yt.json"))
+var nowPlaying: NowPlayingSource?
+if let cmd = nowPlayingCommand {
+    log("also tracking other apps via Now Playing")
+    nowPlaying = NowPlayingSource(tracker: otherTracker, command: cmd)
+    nowPlaying?.start()
+}
+
 ws.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { n in
     if (n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier == musicBundleID {
         stopPolling()
         tracker.finish(Date())
     }
 }
-ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in tracker.pauseClock(Date()) }
-ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in tracker.resumeClock(Date()) }
+ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { _ in
+    tracker.pauseClock(Date())
+    otherTracker.pauseClock(Date())
+}
+ws.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+    tracker.resumeClock(Date())
+    otherTracker.resumeClock(Date())
+}
 
 // Save the play in progress when launchd stops us (logout / shutdown / restart).
 signal(SIGTERM, SIG_IGN)
@@ -645,6 +820,8 @@ for sig in [SIGTERM, SIGINT] {
     let src = DispatchSource.makeSignalSource(signal: sig, queue: .main)
     src.setEventHandler {
         tracker.suspend(Date())
+        otherTracker.suspend(Date())
+        nowPlaying?.process?.terminate()
         exit(0)
     }
     src.resume()

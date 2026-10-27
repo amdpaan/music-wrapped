@@ -9,6 +9,10 @@ Play = namedtuple("Play", "ts dt title artist album duration seconds skipped sou
 # est: the part of `seconds` that is estimated (other-device plays count as the full track length).
 Row = namedtuple("Row", "name sub plays seconds pid est", defaults=(None, 0))
 
+# Sources timed live on this Mac: 'mac' = the Music app, 'yt' = other apps via Now Playing (YT Music,
+# browsers). 'other' = inferred from synced play counts. Same list as the logger's liveSources.
+LIVE = ("mac", "yt")
+
 
 # ---------- genres ----------
 
@@ -61,7 +65,7 @@ def plays_between(con, start, end):
            WHERE p.ts >= ? AND p.ts < ? ORDER BY p.ts""", (ts_of(start), ts_of(end)))
     out = []
     for r in rows:
-        secs = r["seconds_listened"] if r["source"] == "mac" else (r["duration"] or r["seconds_listened"])
+        secs = r["seconds_listened"] if r["source"] in LIVE else (r["duration"] or r["seconds_listened"])
         out.append(Play(r["ts"], datetime.fromtimestamp(r["ts"]), r["title"], r["artist"] or "Unknown artist",
                         r["album"] or "", r["duration"] or 0, secs or 0, r["skipped"], r["source"],
                         r["persistent_id"], genre_name(r["g"]), r["ended_ts"] or r["ts"]))
@@ -75,7 +79,7 @@ def hours(plays):
 def estimated_hours(plays):
     """Hours from other-device plays: the synced play count gives no listening time, so each one
     counts as the full track length (Mac plays are timed live)."""
-    return sum(p.seconds for p in plays if p.source != "mac") / 3600
+    return sum(p.seconds for p in plays if p.source not in LIVE) / 3600
 
 
 def _rank(groups, pids, n):
@@ -92,7 +96,7 @@ def _group(plays, keyfn, rowfn):
             continue
         r = g.get(k) or rowfn(p)
         g[k] = r._replace(plays=r.plays + 1, seconds=r.seconds + p.seconds,
-                          est=r.est + (p.seconds if p.source != "mac" else 0))
+                          est=r.est + (p.seconds if p.source not in LIVE else 0))
         if p.pid:
             pids[k][p.pid] += 1
     return g, pids
@@ -131,7 +135,7 @@ def heatmap(plays):
     """Mac-only minutes listened, [weekday Mon=0][hour]."""
     grid = [[0.0] * 24 for _ in range(7)]
     for p in plays:
-        if p.source == "mac":
+        if p.source in LIVE:
             grid[p.dt.weekday()][p.dt.hour] += p.seconds / 60
     return grid
 
@@ -140,7 +144,7 @@ def most_skipped(plays, n=5):
     """Mac-only. Rows of (title, artist, skipped, mac plays)."""
     skipped, total = Counter(), Counter()
     for p in plays:
-        if p.source == "mac":
+        if p.source in LIVE:
             total[(p.title, p.artist)] += 1
             if p.skipped:
                 skipped[(p.title, p.artist)] += 1
@@ -203,7 +207,7 @@ def longest_session(plays, gap=10 * 60):
     """Mac only: the longest stretch of back-to-back listening (a new session starts after a gap of
     more than 10 minutes). (start datetime, end datetime, songs) or None."""
     best, cur = None, None
-    for p in sorted((p for p in plays if p.source == "mac"), key=lambda p: p.ts):
+    for p in sorted((p for p in plays if p.source in LIVE), key=lambda p: p.ts):
         if cur and p.ts - cur[1] <= gap:
             cur = (cur[0], max(cur[1], p.ended), cur[2] + 1)
         else:
@@ -284,11 +288,11 @@ def library_totals(con):
 
 
 def logged_totals(con):
-    r = con.execute("""SELECT COUNT(*), COALESCE(SUM(CASE WHEN source='mac' THEN seconds_listened
+    r = con.execute("""SELECT COUNT(*), COALESCE(SUM(CASE WHEN source IN ('mac','yt') THEN seconds_listened
                        ELSE COALESCE(duration, seconds_listened) END), 0), MIN(ts),
-                       SUM(source='mac'), SUM(source='other') FROM plays""").fetchone()
+                       SUM(source='mac'), SUM(source='other'), SUM(source='yt') FROM plays""").fetchone()
     return {"plays": r[0], "hours": r[1] / 3600, "since": datetime.fromtimestamp(r[2]) if r[2] else None,
-            "mac": r[3] or 0, "other": r[4] or 0}
+            "mac": r[3] or 0, "other": r[4] or 0, "yt": r[5] or 0}
 
 
 # ---------- listening personality ----------
@@ -323,7 +327,7 @@ def personality(plays, new_artist_count=0, days_in_period=7):
     artists = len({p.artist for p in plays})
     if new_artist_count:
         cands.append((min(new_artist_count / 5, new_artist_count / max(1, artists) / 0.3), "The Explorer", {"n": new_artist_count}))
-    mac = [p for p in plays if p.source == "mac"]
+    mac = [p for p in plays if p.source in LIVE]
     secs = sum(p.seconds for p in mac) or 1
     if len(mac) >= 5:
         night = sum(p.seconds for p in mac if p.dt.hour >= 22 or p.dt.hour < 4) / secs

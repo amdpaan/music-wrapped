@@ -20,11 +20,11 @@ def track(pid, plays, played_ts=None, added_ts=T0 - 86400 * 30, title="Song", ar
             "plays": plays, "played_ts": played_ts, "added_ts": added_ts}
 
 
-def mac_play(con, pid, ts, listened, title="Song", artist="Artist"):
+def mac_play(con, pid, ts, listened, title="Song", artist="Artist", source="mac"):
     con.execute("""INSERT INTO plays (ts, played_at, title, artist, album, duration, seconds_listened, skipped,
                    source, persistent_id, ended_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (ts, library.local_iso(ts), title, artist, "Album", 200.0, listened, int(listened < 100),
-                 "mac", pid, ts + listened))
+                 source, pid, ts + listened))
     con.commit()
 
 
@@ -60,6 +60,20 @@ class Counting(unittest.TestCase):
         # Taking another snapshot with no change adds nothing.
         r = library.snapshot(self.con, tracks=[track("A", 15, played_ts=T0 + 3000)], now=T0 + 7200)
         self.assertEqual(r["other_plays"], 0)
+
+    def test_other_app_plays_are_timed_live_and_ignored_by_snapshots(self):
+        # A YT Music play: real listening time (not estimated), Mac-only stats include it, and a
+        # library snapshot neither subtracts it nor is affected by it.
+        library.snapshot(self.con, tracks=[track("A", 10)], now=T0)
+        mac_play(self.con, "YT00000000000001", T0 + 100, 90, title="Web Song", source="yt")
+        r = library.snapshot(self.con, tracks=[track("A", 11, played_ts=T0 + 3000)], now=T0 + 3600)
+        self.assertEqual(r["other_plays"], 1)
+        plays = stats.plays_between(self.con, date(2026, 10, 5), date(2026, 10, 6))
+        yt = next(p for p in plays if p.source == "yt")
+        self.assertEqual(yt.seconds, 90)
+        self.assertAlmostEqual(stats.estimated_hours(plays), 200 / 3600)  # only the iPhone play
+        self.assertEqual(sum(sum(row) for row in stats.heatmap(plays)), 1.5)
+        self.assertEqual(stats.logged_totals(self.con)["yt"], 1)
 
     def test_play_spanning_the_track_counts_as_finished(self):
         # The logger missed ~20 s while restarting: 186 s heard of 207 s, but the play ran start to end.

@@ -77,7 +77,7 @@ def check(con, now=None):
         hb = json.loads((paths.SUPPORT / "heartbeat.json").read_text())["last_playing_ts"]
     except (OSError, ValueError, KeyError):
         hb = None
-    last_mac = con.execute("SELECT MAX(ended_ts) FROM plays WHERE source='mac'").fetchone()[0]
+    last_mac = con.execute("SELECT MAX(ended_ts) FROM plays WHERE source IN ('mac','yt')").fetchone()[0]
     silent = hb is not None and now - hb < 3 * DAY and (last_mac is None or now - last_mac > 3 * DAY)
     res.append((not silent, "Mac logging",
                 "Music played on this Mac recently, but no play has been logged for 3+ days. Run: music-wrapped doctor"

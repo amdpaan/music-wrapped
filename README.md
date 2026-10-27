@@ -7,6 +7,8 @@ Everything is free and local: no paid APIs, no Apple developer account, no data 
 
 - **Logs every play on your Mac** with a tiny background helper that sleeps until the Music app
   announces a track change (`com.apple.Music.playerInfo`). No polling, nothing runs when Music is closed.
+- **Also logs YT Music and other apps on your Mac** (the YT Music web app, a browser tab) from macOS's
+  Now Playing, with the same counting rules. See [Other apps](#other-apps-yt-music).
 - **Imports your whole library** (play counts, last played, durations) for all-time stats.
 - **Picks up iPhone (and other device) plays** from synced play counts, once a day and before every report.
 - **Generates Wrapped pages** (weekly, monthly, yearly, all-time and custom ranges) as single self-contained
@@ -308,7 +310,7 @@ Songs without artwork, or streamed but not in your library, show their first let
 - **Mac plays**: a play counts after **30 s** of actual listening (pauses and sleep don't count), and is
   recorded at that moment; when the song ends, the same row gets its final listening time. It's
   marked **skipped** if it stopped before 50% of the track. Each play is one row: timestamp, title, artist,
-  album, duration, seconds listened, skipped and `source = 'mac'`.
+  album, duration, seconds listened, skipped and `source = 'mac'` (or `'yt'` for [other apps](#other-apps-yt-music)).
 - **Other devices**: each snapshot compares every track's library play count with the previous snapshot.
   A track seen for the first time (in the backfill or any later snapshot, e.g. a song you just added on your
   iPhone) only gets a **baseline**: its existing play count is never counted as plays; only increases after
@@ -380,6 +382,21 @@ demo/                 output of `music-wrapped demo`
 `top_artist` / `top_song` are `null` when nothing has been played this week. Newer fields:
 `top_genre {name, plays}`, a `pid` on `top_artist` and `top_song` (the cover is
 `artwork/<pid>.jpg`), and `daily_minutes` (7 numbers, Monday first).
+
+## Other apps (YT Music)
+
+Music played on your Mac in other apps, such as YT Music (as a Safari web app or in a tab), is logged too,
+from what macOS shows as Now Playing. The same rules apply: a play counts after 30 s, and it's a skip if it
+stopped before 50 %. These plays have `source = 'yt'`, count as timed listening in every report and the
+widget, and keep the cover macOS shows. They never touch the Music library's play counts. Plays in these
+apps on your iPhone aren't included.
+
+Since macOS 15.4, only Apple's own programs may read Now Playing, so the logger runs a small helper
+(`logger/nowplaying.m`, built into `music-wrapped-nowplaying.dylib`) inside the system's `/usr/bin/perl`, the
+same approach as the open-source [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter). It only
+reads what's playing; it never controls playback. It relies on private macOS behaviour, so a macOS update may
+stop it: then only the Music app is logged, and `logs/logger.log` says so. Turn it off with
+`"now_playing": false` in `config.json` and restart the logger.
 
 ## Fallback: polling
 

@@ -37,6 +37,10 @@ def rebuild_logger():
             _run([REPO / "tools/sign-logger.sh", new])
         except subprocess.CalledProcessError:
             print("  Signing failed; macOS may ask again whether the logger may control Music.")
+        helper = Path(tmp) / "music-wrapped-nowplaying.dylib"
+        _run(["clang", "-dynamiclib", "-O2", "-fobjc-arc", "-framework", "Foundation", "-o", helper,
+              REPO / "logger/nowplaying.m"])
+        os.replace(helper, dest.parent / helper.name)
         os.replace(new, dest)   # the logger always runs from dest, so this is the switch-over
     subprocess.run(["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/com.musicwrapped.logger"], check=False)
 
@@ -97,7 +101,7 @@ def run(rebuild=False, pull=True):
         return 1 if check_agents() else 0
 
     steps = []
-    if rebuild or "logger/main.swift" in changed or "tools/sign-logger.sh" in changed:
+    if rebuild or {"logger/main.swift", "logger/nowplaying.m", "tools/sign-logger.sh"} & set(changed):
         steps.append(("Rebuilding the logger", rebuild_logger))
     if rebuild or "renderer/main.swift" in changed:
         steps.append(("Rebuilding the story renderer", rebuild_renderer))

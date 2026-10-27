@@ -40,8 +40,10 @@ on run argv
 end run
 """
 
-PID_RE = re.compile(r"\ba-([0-9A-F]{16})\b")
-BIG_RE = re.compile(r"\bx-([0-9A-F]{16})\b")
+# Music's persistent IDs, or "YT…" ids for songs from other apps (YT Music). The logger saves those
+# covers itself from Now Playing; Music can't export them.
+PID_RE = re.compile(r"\ba-((?:YT[0-9A-F]{14})|[0-9A-F]{16})\b")
+BIG_RE = re.compile(r"\bx-((?:YT[0-9A-F]{14})|[0-9A-F]{16})\b")
 BIG = 640  # px, slides and story images
 
 
@@ -57,7 +59,7 @@ def _dir(size=SIZE):
 def _missing(pids, size=SIZE):
     out = []
     for pid in pids:
-        if (_dir(size) / f"{pid}.jpg").exists():
+        if pid.startswith("YT") or (_dir(size) / f"{pid}.jpg").exists():
             continue
         none = _dir(size) / f"{pid}.none"
         if none.exists() and time.time() - none.stat().st_mtime < RETRY_DAYS * 86400:

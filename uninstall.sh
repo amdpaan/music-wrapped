@@ -7,7 +7,7 @@ for l in logger hourly snapshot weekly monthly yearly; do
   launchctl bootout "gui/$UID_/com.musicwrapped.$l" 2>/dev/null
   rm -f "$HOME/Library/LaunchAgents/com.musicwrapped.$l.plist"
 done
-rm -f "$HOME/.local/bin/music-wrapped" "$SUPPORT/bin/music-wrapped-logger"
+rm -f "$HOME/.local/bin/music-wrapped" "$SUPPORT/bin/music-wrapped-logger" "$SUPPORT/bin/music-wrapped-nowplaying.dylib"
 rm -rf "$HOME/Applications/Music Wrapped.app"
 if [ "${1:-}" = "--purge" ]; then
   rm -rf "$SUPPORT"

@@ -49,7 +49,7 @@ def clip_now(end):
 # ---------- shared bits ----------
 
 def device_split(plays):
-    mac = sum(1 for p in plays if p.source == "mac")
+    mac = sum(1 for p in plays if p.source in S.LIVE)
     return mac, len(plays) - mac
 
 

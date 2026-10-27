@@ -7,7 +7,8 @@ from . import paths
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 
--- One row per play. source = 'mac' (logged live) or 'other' (inferred from synced play counts).
+-- One row per play. source = 'mac' (Music app, logged live), 'yt' (another app on this Mac, e.g.
+-- YT Music, logged live via Now Playing) or 'other' (inferred from synced play counts).
 CREATE TABLE IF NOT EXISTS plays (
     id INTEGER PRIMARY KEY,
     ts INTEGER NOT NULL,              -- start, unix seconds

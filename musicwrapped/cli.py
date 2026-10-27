@@ -236,11 +236,11 @@ def cmd_summary(a):
 
 def cmd_status(a):
     con = db.connect()
-    lt = con.execute("SELECT COUNT(*), SUM(source='mac'), SUM(source='other'), MAX(played_at) FROM plays").fetchone()
+    lt = con.execute("SELECT COUNT(*), SUM(source='mac'), SUM(source='other'), MAX(played_at), SUM(source='yt') FROM plays").fetchone()
     snap = con.execute("SELECT ts, kind, tracks, total_play_count FROM snapshots ORDER BY ts DESC LIMIT 1").fetchone()
     today = con.execute("SELECT COUNT(*) FROM plays WHERE ts >= ?", (int(datetime.combine(date.today(), datetime.min.time()).timestamp()),)).fetchone()[0]
     print(f"Data folder:     {paths.SUPPORT}")
-    print(f"Plays logged:    {lt[0]:,} (mac {lt[1] or 0:,}, other devices {lt[2] or 0:,}); today {today}")
+    print(f"Plays logged:    {lt[0]:,} (mac {lt[1] or 0:,}, other apps {lt[4] or 0:,}, other devices {lt[2] or 0:,}); today {today}")
     print(f"Last play:       {lt[3] or '—'}")
     if snap:
         print(f"Last snapshot:   {datetime.fromtimestamp(snap['ts']):%Y-%m-%d %H:%M} ({snap['kind']}), "

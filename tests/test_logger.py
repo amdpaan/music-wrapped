@@ -49,6 +49,8 @@ class LoggerTest(unittest.TestCase):
     def env(self, query=None):
         e = dict(os.environ, MUSIC_WRAPPED_HOME=self.home, MUSIC_WRAPPED_NOTIFICATION=self.channel,
                  MUSIC_WRAPPED_MIN_SECONDS="2", MUSIC_WRAPPED_TEST_QUERY=json.dumps(query) if query else "none")
+        if getattr(self, "np_feed", None):
+            e["MUSIC_WRAPPED_NOWPLAYING_CMD"] = str(self.np_script)
         return e
 
     def start(self, query=None):
@@ -202,6 +204,74 @@ class LoggerTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual([r["persistent_id"] for r in rows], [HEX[A]])
         self.assertAlmostEqual(rows[0]["seconds_listened"], 2.5, delta=1)
+
+    # ---------- other apps (Now Playing helper, faked) ----------
+
+    def now_playing(self):
+        """Use a fake Now Playing helper: a script that prints whatever np() appends to a file."""
+        self.np_feed = Path(self.home) / "np.txt"
+        self.np_feed.write_text("")
+        self.np_script = Path(self.home) / "fake-nowplaying.sh"
+        self.np_script.write_text(f'#!/bin/sh\nexec tail -n +1 -f "{self.np_feed}"\n')
+        self.np_script.chmod(0o755)
+
+    def np(self, state, title="YT Song", elapsed=0.0, duration=30.0, **extra):
+        line = {"state": state}
+        if state != "Stopped":
+            line.update(title=title, artist="YT Artist", album="YT Album", duration=duration, elapsed=elapsed, **extra)
+        with open(self.np_feed, "a") as f:
+            f.write(json.dumps(line) + "\n")
+        time.sleep(0.4)  # tail -f polls
+
+    def test_other_app_plays_are_logged_as_yt_with_cover(self):
+        self.now_playing()
+        self.start()
+        png = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+        self.np("Playing", art=png)
+        self.post("Playing", A, seconds=30)   # the Music app at the same time stays separate
+        time.sleep(3)
+        self.np("Paused", elapsed=3)
+        self.post("Stopped")
+        rows = self.rows()
+        self.assertEqual(sorted(r["source"] for r in rows), ["mac", "yt"])
+        yt = next(r for r in rows if r["source"] == "yt")
+        self.assertEqual((yt["title"], yt["artist"], yt["album"], yt["duration"]), ("YT Song", "YT Artist", "YT Album", 30))
+        self.assertRegex(yt["persistent_id"], r"^YT[0-9A-F]{14}$")
+        for d in ("artwork", "artwork/640"):
+            self.assertTrue((Path(self.home) / d / f"{yt['persistent_id']}.jpg").exists(), d)
+        self.assertEqual(json.loads((Path(self.home) / "summary.json").read_text())["plays"], 2)
+
+    def test_other_app_skip_repeat_and_seek(self):
+        self.now_playing()
+        self.start()
+        # The helper only reports changes, so a repeat shows up as a position far behind where the
+        # song should be by now.
+        self.np("Playing", "One", elapsed=30, duration=60)
+        time.sleep(2.5)                                         # counted
+        self.np("Playing", "One", elapsed=0.5, duration=60)    # repeat: back to the start → a new play
+        time.sleep(2.5)                                         # counted
+        self.np("Playing", "One", elapsed=40, duration=60)     # seek forward
+        self.np("Playing", "One", elapsed=20, duration=60)     # seek back, not to the start: same play
+        self.np("Playing", "Two", duration=60)                 # skip to another song
+        time.sleep(0.5)
+        self.np("Stopped")
+        rows = self.rows()
+        self.assertEqual([r["title"] for r in rows], ["One", "One"])
+        self.assertEqual([r["skipped"] for r in rows], [1, 1])
+
+    def test_other_app_restart_resumes_the_same_song(self):
+        self.now_playing()
+        self.start()
+        self.np("Playing", duration=60)
+        time.sleep(3)                     # counted
+        self.stop()                       # saved to pending-yt.json
+        self.assertTrue((Path(self.home) / "pending-yt.json").exists())
+        self.start()                      # the fake helper replays the feed; its last line is still playing
+        time.sleep(1)
+        self.np("Stopped")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertGreater(rows[0]["seconds_listened"], 3)
 
 
 if __name__ == "__main__":

@@ -607,7 +607,7 @@ def data_for(con, kind, plays=None, prev=None, start=None, end=None):
         d["daily"] = _per_bucket(plays, start, end, kind)
     if prev is not None:
         d["prev_minutes"] = S.hours(prev) * 60  # unrounded, so % changes match the report header
-    mac = [p for p in plays if p.source == "mac"]
+    mac = [p for p in plays if p.source in S.LIVE]
     if mac:
         hours = Counter()
         days = Counter()
