@@ -75,6 +75,27 @@ class Counting(unittest.TestCase):
         self.assertEqual(sum(sum(row) for row in stats.heatmap(plays)), 1.5)
         self.assertEqual(stats.logged_totals(self.con)["yt"], 1)
 
+    def test_alltime_adds_other_app_plays_once(self):
+        # Library: A (10 plays) by Artist, B (4) by Other. YT Music: A again (same song, other case) ×2
+        # and a song only on YT Music ×3. The library's counts never include the YT Music plays.
+        library.snapshot(self.con, tracks=[track("A", 10), track("B", 4, title="Other Song", artist="Other", genre="Rock")], now=T0)
+        for i in range(2):
+            mac_play(self.con, "YT00000000000001", T0 + 100 + i * 300, 120, title="song", artist="ARTIST ", source="yt")
+        for i in range(3):
+            mac_play(self.con, "YT00000000000002", T0 + 1000 + i * 300, 150, title="Web Only", artist="Web Artist", source="yt")
+        songs = stats.library_top(self.con, "songs", 10)
+        self.assertEqual([(r.name, r.plays, r.pid) for r in songs],
+                         [("Song", 12, "A"), ("Other Song", 4, "B"), ("Web Only", 3, "YT00000000000002")])
+        self.assertEqual(songs[0].seconds, 10 * 200 + 2 * 120)    # library estimate + live time
+        artists = stats.library_top(self.con, "artists", 10)
+        self.assertEqual([(r.name, r.plays) for r in artists], [("Artist", 12), ("Other", 4), ("Web Artist", 3)])
+        genres = stats.library_top(self.con, "genres", 10)       # YT-only songs have no genre
+        self.assertEqual([(r.name, r.plays) for r in genres], [("Pop", 12), ("Rock", 4)])
+        t = stats.library_totals(self.con)
+        self.assertEqual((t["tracks"], t["plays"], t["artists"], t["yt_plays"]), (2, 19, 3, 5))
+        # The page and its slides build with these numbers.
+        self.assertIn("5 YT Music plays", reports.alltime(self.con)[2])
+
     def test_play_spanning_the_track_counts_as_finished(self):
         # The logger missed ~20 s while restarting: 186 s heard of 207 s, but the play ran start to end.
         library.snapshot(self.con, tracks=[track("A", 10)], now=T0)

@@ -253,38 +253,72 @@ def split(plays, buckets):
     return res
 
 
-def library_top(con, kind, n):
-    """All-time top songs/artists/albums from library play counts."""
-    base = "FROM library l WHERE in_library = 1 AND play_count > 0"
-    top_pid = ("(SELECT persistent_id FROM library t WHERE t.in_library = 1 AND t.{col} = l.{col} "
-               "ORDER BY t.play_count DESC LIMIT 1)")
+def _song_key(title, artist):
+    return ((title or "").strip().lower(), (artist or "").strip().lower())
+
+
+def alltime_songs(con):
+    """Every song with its all-time plays: the Music library's play counts (every device, seconds
+    estimated as plays × length) plus plays logged from other apps (YT Music, timed live), which the
+    library never sees. The same title + artist in both is one song (the library's, for its cover and
+    genre). Dicts: title, artist, album, genre, plays, seconds, pid, library."""
+    songs, by_key = [], {}
+    for r in con.execute("""SELECT title, artist, album, genre, play_count, play_count * COALESCE(duration, 0),
+                            persistent_id FROM library WHERE in_library = 1 AND play_count > 0"""):
+        s = {"title": r[0] or "", "artist": r[1] or "", "album": r[2] or "", "genre": r[3] or "",
+             "plays": r[4], "seconds": r[5], "pid": r[6], "library": True}
+        songs.append(s)
+        by_key.setdefault(_song_key(s["title"], s["artist"]), s)
+    for r in con.execute("""SELECT title, artist, MAX(album), COUNT(*), SUM(seconds_listened), MAX(persistent_id)
+                            FROM plays WHERE source = 'yt' GROUP BY LOWER(TRIM(title)), LOWER(TRIM(artist))"""):
+        s = by_key.get(_song_key(r[0], r[1]))
+        if s:
+            s["plays"] += r[3]
+            s["seconds"] += r[4] or 0
+            s["album"] = s["album"] or r[2] or ""
+        else:
+            s = {"title": r[0] or "", "artist": r[1] or "", "album": r[2] or "", "genre": "",
+                 "plays": r[3], "seconds": r[4] or 0, "pid": r[5], "library": False}
+            songs.append(s)
+            by_key[_song_key(s["title"], s["artist"])] = s
+    return songs
+
+
+def library_top(con, kind, n, songs=None):
+    """All-time top songs/artists/albums/genres (see alltime_songs: library play counts + other apps).
+    Covers: each group's most-played song."""
+    songs = alltime_songs(con) if songs is None else songs
     if kind == "songs":
-        q = f"SELECT title, artist, play_count, play_count * COALESCE(duration, 0), persistent_id {base} ORDER BY 3 DESC, 4 DESC LIMIT ?"
-    elif kind == "genres":
-        # Grouped by spelling in SQL, then spellings of the same genre are merged here.
-        q = (f"SELECT genre, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='genre')} "
-             f"{base} AND COALESCE(genre, '') != '' GROUP BY genre ORDER BY 3 DESC, 4 DESC")
-        merged = {}
-        for r in con.execute(q):
-            name = genre_name(r[0])
-            m = merged.get(name)
-            # Each spelling's rows arrive most-played first, so the first one keeps its cover track.
-            merged[name] = Row(name, "", r[2], r[3], r[4]) if not m else m._replace(plays=m.plays + r[2], seconds=m.seconds + r[3])
-        rows = sorted(merged.values(), key=lambda r: (-r.plays, -r.seconds, r.name.lower()))
-        return rows[:n]
-    elif kind == "artists":
-        q = (f"SELECT artist, '', SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='artist')} "
-             f"{base} AND artist != '' GROUP BY artist ORDER BY 3 DESC, 4 DESC LIMIT ?")
+        rows = [Row(s["title"], s["artist"], s["plays"], s["seconds"], s["pid"]) for s in songs]
     else:
-        q = (f"SELECT album, MAX(artist), SUM(play_count), SUM(play_count * COALESCE(duration, 0)), {top_pid.format(col='album')} "
-             f"{base} AND album != '' GROUP BY album ORDER BY 3 DESC, 4 DESC LIMIT ?")
-    return [Row(r[0], r[1], r[2], r[3], r[4]) for r in con.execute(q, (n,))]
+        field = {"artists": "artist", "albums": "album", "genres": "genre"}[kind]
+        groups, best = {}, {}
+        for s in songs:
+            name = genre_name(s["genre"]) if kind == "genres" else s[field]
+            if not name:
+                continue
+            key = name if kind == "genres" else name.lower()   # genre_name already merges spellings
+            g = groups.get(key)
+            groups[key] = (Row(name, s["artist"] if kind == "albums" else "", s["plays"], s["seconds"]) if not g
+                           else g._replace(plays=g.plays + s["plays"], seconds=g.seconds + s["seconds"]))
+            if key not in best or s["plays"] > best[key]["plays"]:
+                best[key] = s
+        rows = [g._replace(pid=best[k]["pid"], sub=best[k]["artist"] if kind == "albums" else g.sub)
+                for k, g in groups.items()]
+    rows.sort(key=lambda r: (-r.plays, -r.seconds, r.name.lower()))
+    return rows[:n]
 
 
-def library_totals(con):
-    r = con.execute("""SELECT COUNT(*), COALESCE(SUM(play_count), 0), COALESCE(SUM(play_count * COALESCE(duration, 0)), 0),
-                       COUNT(DISTINCT artist) FROM library WHERE in_library = 1""").fetchone()
-    return {"tracks": r[0], "plays": r[1], "hours": r[2] / 3600, "artists": r[3]}
+def library_totals(con, songs=None):
+    """All-time totals. tracks = songs in the Music library; plays/hours/artists include other apps
+    (yt_plays of them)."""
+    songs = alltime_songs(con) if songs is None else songs
+    tracks = con.execute("SELECT COUNT(*) FROM library WHERE in_library = 1").fetchone()[0]
+    artists = {s["artist"].lower() for s in songs if s["artist"]}
+    artists |= {(r[0] or "").lower() for r in con.execute("SELECT DISTINCT artist FROM library WHERE in_library = 1") if r[0]}
+    yt = con.execute("SELECT COUNT(*) FROM plays WHERE source = 'yt'").fetchone()[0]
+    return {"tracks": tracks, "plays": sum(s["plays"] for s in songs), "hours": sum(s["seconds"] for s in songs) / 3600,
+            "artists": len(artists), "yt_plays": yt}
 
 
 def logged_totals(con):

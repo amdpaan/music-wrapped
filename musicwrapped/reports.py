@@ -309,12 +309,13 @@ def yearly(con, y, slides_only=False):
 
 
 def alltime(con, slides_only=False):
-    lib = S.library_totals(con)
+    every = S.alltime_songs(con)
+    lib = S.library_totals(con, every)
     lt = S.logged_totals(con)
-    songs = S.library_top(con, "songs", 25)
-    artists = S.library_top(con, "artists", 25)
-    albums = S.library_top(con, "albums", 25)
-    genres = S.library_top(con, "genres", 10)
+    songs = S.library_top(con, "songs", 25, every)
+    artists = S.library_top(con, "artists", 25, every)
+    albums = S.library_top(con, "albums", 25, every)
+    genres = S.library_top(con, "genres", 10, every)
     d = SL.data_for(con, "alltime")
     sl = SL.build(d, SL.words("alltime"), f"{lib['tracks']:,} songs in your library") if d else []
     if slides_only:
@@ -322,15 +323,18 @@ def alltime(con, slides_only=False):
     body = (R.card("Top 25 songs", R.ranked(songs, "Run a backfill first."), "green")
             + R.card("Top 25 artists", R.ranked(artists, "Run a backfill first.", round_=True), "pink")
             + R.card("Top 25 albums", R.ranked(albums, "Run a backfill first."), "purple")
-            + R.card(f"Top {len(genres) or 10} genres", R.genre_bars(genres, sum(r.plays for r in S.library_top(con, "genres", 10_000))),
-                     "dark", wide=True, note="By library play count; covers show each genre's most-played song"))
-    stats = [("library plays", f"{lib['plays']:,}"),
-             ("est. hours (library)", f"{lib['hours']:,.0f}"),
+            + R.card(f"Top {len(genres) or 10} genres", R.genre_bars(genres, sum(r.plays for r in S.library_top(con, "genres", 10_000, every))),
+                     "dark", wide=True, note="By play count; covers show each genre's most-played song"))
+    stats = [("all-time plays", f"{lib['plays']:,}"),
+             ("est. hours", f"{lib['hours']:,.0f}"),
              ("hours logged", f"{lt['hours']:,.1f}"),
              ("plays logged", f"{lt['plays']:,}"),
              ("artists", f"{lib['artists']:,}")]
     note = ("All-time rankings use your Music library's play counts (every device, since you added each song); "
             "hours there are estimated as plays × track length. ")
+    if lib["yt_plays"]:
+        note += (f"They also include {lib['yt_plays']:,} YT Music play{'s' if lib['yt_plays'] != 1 else ''} logged on this Mac, "
+                 "timed live; YT Music has no genres, so those count toward a genre only when the song is also in your library. ")
     html = R.page("Wrapped All Time", "All time", "Your All-Time, Wrapped",
                   f"{lib['tracks']:,} tracks in your library", stats, body, footer(con, note),
                   story=_story(sl), story_css=SL.CSS, story_js=SL.JS)

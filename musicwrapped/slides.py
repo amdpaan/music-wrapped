@@ -581,18 +581,19 @@ def data_for(con, kind, plays=None, prev=None, start=None, end=None):
     """Everything the slides need. plays/prev: logged plays in the period and the period before;
     start/end: the period (dates), for the minutes-per-day chart."""
     if kind == "alltime":
-        lib = S.library_totals(con)
+        every = S.alltime_songs(con)
+        lib = S.library_totals(con, every)
         if not lib["plays"]:
             return None
-        songs = S.library_top(con, "songs", 9)
-        artists = S.library_top(con, "artists", 5)
-        best = con.execute("SELECT title, artist FROM library WHERE in_library = 1 AND artist = ? "
-                           "ORDER BY play_count DESC LIMIT 1", (artists[0].name,)).fetchone() if artists else None
-        return {"artist_song": tuple(best) if best else None,
+        songs = S.library_top(con, "songs", 9, every)
+        artists = S.library_top(con, "artists", 5, every)
+        best = S.library_top(con, "songs", 1, [s for s in every if artists and s["artist"].lower() == artists[0].name.lower()])
+        return {"artist_song": (best[0].name, best[0].sub) if best else None,
                 "minutes": round(lib["hours"] * 60), "plays": lib["plays"], "artists_n": lib["artists"],
-                "songs": songs[:5], "mosaic": songs, "artists": S.library_top(con, "artists", 5),
-                "genres": S.library_top(con, "genres", 5),
-                "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000)), "all_estimated": True}
+                "songs": songs[:5], "mosaic": songs, "artists": artists,
+                "genres": S.library_top(con, "genres", 5, every),
+                "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000, every)),
+                "all_estimated": True, "yt_plays": lib["yt_plays"]}
     if not plays:
         return None
     songs = S.top_songs(plays, 9)
@@ -693,7 +694,8 @@ def minutes(d, words):
     detail = _rv(f'<div class="ss">That’s {hours:,.1f} hours · {plural(d["plays"], "play")} · '
                  f'{plural(d["artists_n"], "artist")}</div>', 3)
     if d.get("all_estimated"):
-        detail += _rv('<div class="ss">Estimated from play counts × song length</div>', 4)
+        how = "Estimated from play counts × song length" + (", plus YT Music timed live" if d.get("yt_plays") else "")
+        detail += _rv(f'<div class="ss">{how}</div>', 4)
     elif d.get("est_minutes"):
         detail += _rv(f'<div class="ss">≈{d["est_minutes"]:,} of those minutes are estimated from other devices</div>', 4)
     return _panel("dark", f"""

@@ -284,7 +284,7 @@ but every slide and detail is still shown.
 ## Top genres
 
 Every report has a **Top genres** card: rank, the cover of each genre's most-played song, a bar, and the
-genre's share of plays (top 5; top 10 by library play count on the all-time page). The logger stores the
+genre's share of plays (top 5; top 10 by all-time play count on the all-time page). The logger stores the
 genre Music reports for each Mac play. Older plays and other-device plays use the library track's genre,
 which every snapshot reads. Plays with no genre are left out of the percentages.
 
@@ -320,7 +320,7 @@ Songs without artwork, or streamed but not in your library, show their first let
   estimated as the track length. Skips can't be known for them.
 - **Real vs estimated minutes**: Mac minutes are what you actually heard (a song skipped after 1 minute adds
   1 minute). Other-device plays add the full song length, so reports mark those times with **≈** and say how
-  many minutes are estimated. All-time hours are always play count × song length.
+  many minutes are estimated. All-time hours are play count × song length, plus YT Music's real time.
 - **iCloud backlogs**: iCloud sometimes delivers many old plays from other devices at once (e.g. +70 on one song).
   A real play always moves a song's "last played" date too, so an increase without a new last-played date is
   treated as old plays syncing in. It goes into all-time stats but isn't counted as this week's listening.
@@ -329,7 +329,10 @@ Songs without artwork, or streamed but not in your library, show their first let
   "Recent" always means at least the last hour, however often snapshots run, because iCloud can take a
   while to sync. And when a Mac song ends just before a snapshot, Music may bump its play count just after
   it: if that Mac play explains the song's new last-played date, the increase isn't counted again.
-- **All-time** reports use the library play counts directly, the true total across all devices.
+- **All-time** reports use the library play counts directly, the true total across all devices, plus the
+  plays logged from [other apps](#other-apps-yt-music) such as YT Music, which the library never sees. A song
+  that's in both (same title and artist) is one entry with both counts added. YT Music has no genres, so
+  its plays count toward a genre only when the song is also in your library.
 - **Date-range** reports (weekly, monthly, yearly, custom) add up the logged rows in that range,
   so 3 plays one week + 5 the next = 8 in that month. Nothing is counted twice.
 - **Heatmap and skips are Mac only**; top lists, on-repeat, new artists and hours include all devices.
