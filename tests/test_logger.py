@@ -243,6 +243,9 @@ class LoggerTest(unittest.TestCase):
         yt = next(r for r in rows if r["source"] == "yt")
         self.assertEqual((yt["title"], yt["artist"], yt["album"], yt["duration"]), ("YT Song", "YT Artist", "YT Album", 30))
         self.assertRegex(yt["persistent_id"], r"^YT[0-9A-F]{14}$")
+        # The YT Music history import must give the same song the same id (shared covers and entries).
+        from musicwrapped import ytimport
+        self.assertEqual(yt["persistent_id"], ytimport.pid_for("YT Song", "YT Artist"))
         for d in ("artwork", "artwork/640"):
             self.assertTrue((Path(self.home) / d / f"{yt['persistent_id']}.jpg").exists(), d)
         self.assertEqual(json.loads((Path(self.home) / "summary.json").read_text())["plays"], 2)

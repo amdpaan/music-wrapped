@@ -269,15 +269,18 @@ def alltime_songs(con):
              "plays": r[4], "seconds": r[5], "pid": r[6], "library": True}
         songs.append(s)
         by_key.setdefault(_song_key(s["title"], s["artist"]), s)
-    for r in con.execute("""SELECT title, artist, MAX(album), COUNT(*), SUM(seconds_listened), MAX(persistent_id)
-                            FROM plays WHERE source = 'yt' GROUP BY LOWER(TRIM(title)), LOWER(TRIM(artist))"""):
+    # Imported YT Music history (source 'yt-history', seconds = Apple's song length) counts the same way.
+    for r in con.execute("""SELECT title, artist, MAX(album), COUNT(*), SUM(seconds_listened), MAX(persistent_id), MAX(genre)
+                            FROM plays WHERE source IN ('yt', 'yt-history')
+                            GROUP BY LOWER(TRIM(title)), LOWER(TRIM(artist))"""):
         s = by_key.get(_song_key(r[0], r[1]))
         if s:
             s["plays"] += r[3]
             s["seconds"] += r[4] or 0
             s["album"] = s["album"] or r[2] or ""
+            s["genre"] = s["genre"] or r[6] or ""
         else:
-            s = {"title": r[0] or "", "artist": r[1] or "", "album": r[2] or "", "genre": "",
+            s = {"title": r[0] or "", "artist": r[1] or "", "album": r[2] or "", "genre": r[6] or "",
                  "plays": r[3], "seconds": r[4] or 0, "pid": r[5], "library": False}
             songs.append(s)
             by_key[_song_key(s["title"], s["artist"])] = s
@@ -316,17 +319,17 @@ def library_totals(con, songs=None):
     tracks = con.execute("SELECT COUNT(*) FROM library WHERE in_library = 1").fetchone()[0]
     artists = {s["artist"].lower() for s in songs if s["artist"]}
     artists |= {(r[0] or "").lower() for r in con.execute("SELECT DISTINCT artist FROM library WHERE in_library = 1") if r[0]}
-    yt = con.execute("SELECT COUNT(*) FROM plays WHERE source = 'yt'").fetchone()[0]
+    yt, hist = con.execute("SELECT SUM(source = 'yt'), SUM(source = 'yt-history') FROM plays").fetchone()
     return {"tracks": tracks, "plays": sum(s["plays"] for s in songs), "hours": sum(s["seconds"] for s in songs) / 3600,
-            "artists": len(artists), "yt_plays": yt}
+            "artists": len(artists), "yt_plays": yt or 0, "yt_history": hist or 0}
 
 
 def logged_totals(con):
     r = con.execute("""SELECT COUNT(*), COALESCE(SUM(CASE WHEN source IN ('mac','yt') THEN seconds_listened
                        ELSE COALESCE(duration, seconds_listened) END), 0), MIN(ts),
-                       SUM(source='mac'), SUM(source='other'), SUM(source='yt') FROM plays""").fetchone()
+                       SUM(source='mac'), SUM(source='other'), SUM(source='yt'), SUM(source='yt-history') FROM plays""").fetchone()
     return {"plays": r[0], "hours": r[1] / 3600, "since": datetime.fromtimestamp(r[2]) if r[2] else None,
-            "mac": r[3] or 0, "other": r[4] or 0, "yt": r[5] or 0}
+            "mac": r[3] or 0, "other": r[4] or 0, "yt": r[5] or 0, "yt_history": r[6] or 0}
 
 
 # ---------- listening personality ----------

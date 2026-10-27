@@ -593,7 +593,7 @@ def data_for(con, kind, plays=None, prev=None, start=None, end=None):
                 "songs": songs[:5], "mosaic": songs, "artists": artists,
                 "genres": S.library_top(con, "genres", 5, every),
                 "genre_total": sum(r.plays for r in S.library_top(con, "genres", 10_000, every)),
-                "all_estimated": True, "yt_plays": lib["yt_plays"]}
+                "all_estimated": True, "yt_plays": lib["yt_plays"], "yt_history": lib["yt_history"]}
     if not plays:
         return None
     songs = S.top_songs(plays, 9)
@@ -694,7 +694,8 @@ def minutes(d, words):
     detail = _rv(f'<div class="ss">That’s {hours:,.1f} hours · {plural(d["plays"], "play")} · '
                  f'{plural(d["artists_n"], "artist")}</div>', 3)
     if d.get("all_estimated"):
-        how = "Estimated from play counts × song length" + (", plus YT Music timed live" if d.get("yt_plays") else "")
+        how = ("Estimated from play counts × song length" + (" (incl. YT Music history)" if d.get("yt_history") else "")
+               + (", plus YT Music timed live" if d.get("yt_plays") else ""))
         detail += _rv(f'<div class="ss">{how}</div>', 4)
     elif d.get("est_minutes"):
         detail += _rv(f'<div class="ss">≈{d["est_minutes"]:,} of those minutes are estimated from other devices</div>', 4)

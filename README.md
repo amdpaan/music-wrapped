@@ -350,6 +350,7 @@ plays.db              SQLite: plays (every play, kept forever), library (all-tim
 summary.json          widget summary, rewritten after every play and report
 nowplaying.json       what another app (YT Music) is playing or has paused, for widgets; removed when it stops
 previews.json         cached preview links for Play story (only with `previews on`)
+songinfo.json         cached song lengths, albums and genres for the YT Music history import
 pending.json          song in progress while the logger restarts (usually absent)
 heartbeat.json        when the logger last saw Music playing (health check)
 health.txt            details of the last failed health check
@@ -401,6 +402,31 @@ same approach as the open-source [mediaremote-adapter](https://github.com/ungive
 reads what's playing; it never controls playback. It relies on private macOS behaviour, so a macOS update may
 stop it: then only the Music app is logged, and `logs/logger.log` says so. Turn it off with
 `"now_playing": false` in `config.json` and restart the logger.
+
+### Your YT Music history (Google Takeout)
+
+To bring in what you played on YT Music before music-wrapped logged it (on any device, iPhone included):
+
+1. At [takeout.google.com](https://takeout.google.com), select only **YouTube and YouTube Music**, then under
+   *All YouTube data included* only **history**, and under *Multiple formats* set history to **JSON**.
+2. Download the zip when Google emails you (it stays in `~/Downloads`), then run:
+
+```sh
+music-wrapped import-yt              # the newest Takeout zip in ~/Downloads, or give its path
+```
+
+It reads `watch-history.json` from the zip, keeps the YT Music songs (not YouTube videos), and imports the plays
+from before live logging started, as `source = 'yt-history'`. They count in the all-time Wrapped and in reports
+for those past periods. Re-importing a newer export replaces the earlier import.
+
+Takeout has no song lengths, so each song's length, album, genre and cover are looked up with Apple's public
+iTunes Search API (only the title and artist are sent), with the same exact-match rule as song previews. Apple
+allows about 20 lookups a minute, so a big history takes a while; it's cached in `songinfo.json` and safe to stop
+and run again. Songs Apple doesn't have count as 3.5 minutes. Skip the lookups with `--no-lookup`.
+
+Limits: YouTube lists a song as soon as it starts, so skipped songs count as plays, and the time is the song's
+full length (shown as ≈ estimated). Only history that YouTube kept is there: none from while your YouTube
+history was paused, or from before auto-delete removed it.
 
 ## Fallback: polling
 

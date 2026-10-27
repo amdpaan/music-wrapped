@@ -224,6 +224,43 @@ def cmd_previews(a):
     return 0
 
 
+def cmd_import_yt(a):
+    from . import ytimport as Y
+    src = Y.find_export(a.file)
+    if not src or not src.exists():
+        print("No Google Takeout export found in ~/Downloads. Export YouTube 'history' (JSON) at takeout.google.com,\n"
+              "then run: music-wrapped import-yt [path to the zip]")
+        return 1
+    print(f"Reading {src.name}…")
+    plays = Y.parse(Y.read_history(src))
+    con = db.connect()
+    until = Y.cutoff(con)
+    old = [p for p in plays if p[0] < until]
+    if not old:
+        print(f"No YT Music plays from before {datetime.fromtimestamp(until):%-d %b %Y} in this export.")
+        return 0
+    cache = Y.load_cache()
+    n = Y.import_plays(con, old, cache["songs"])
+    songs = sorted({(t, ar) for _, t, ar in old})
+    print(f"Imported {n:,} YT Music plays ({len(songs):,} songs, {len({ar for _, ar in songs}):,} artists), "
+          f"{datetime.fromtimestamp(old[0][0]):%-d %b %Y} to {datetime.fromtimestamp(old[-1][0]):%-d %b %Y}.")
+    if len(old) < len(plays):
+        print(f"Skipped {len(plays) - len(old):,} from after live YT Music logging started (already logged).")
+    todo = sum(1 for s in songs if Y._key(*s) not in cache["songs"])
+    if todo and not a.no_lookup:
+        print(f"Looking up {todo:,} songs' length, album, genre and cover with Apple's iTunes Search "
+              f"(title and artist only; about {todo * Y.GAP / 60:.0f} min at most; safe to stop and run again)…")
+        try:
+            done, found = Y.look_up(con, songs, cache)
+            print(f"Looked up {done:,} songs, found {found:,}. Others count as {Y.AVERAGE // 60} min {Y.AVERAGE % 60} s per play.")
+        except KeyboardInterrupt:
+            print("\nStopped. Run the same command again to carry on.")
+            return 130
+    reports.save(*reports.alltime(con))
+    print("Rebuilt the all-time report. Past weekly, monthly and yearly reports include these plays when rebuilt.")
+    return 0
+
+
 def cmd_update(a):
     from . import update
     return update.run(rebuild=a.rebuild, pull=not a.no_pull)
@@ -236,11 +273,11 @@ def cmd_summary(a):
 
 def cmd_status(a):
     con = db.connect()
-    lt = con.execute("SELECT COUNT(*), SUM(source='mac'), SUM(source='other'), MAX(played_at), SUM(source='yt') FROM plays").fetchone()
+    lt = con.execute("SELECT COUNT(*), SUM(source='mac'), SUM(source='other'), MAX(played_at), SUM(source='yt'), SUM(source='yt-history') FROM plays").fetchone()
     snap = con.execute("SELECT ts, kind, tracks, total_play_count FROM snapshots ORDER BY ts DESC LIMIT 1").fetchone()
     today = con.execute("SELECT COUNT(*) FROM plays WHERE ts >= ?", (int(datetime.combine(date.today(), datetime.min.time()).timestamp()),)).fetchone()[0]
     print(f"Data folder:     {paths.SUPPORT}")
-    print(f"Plays logged:    {lt[0]:,} (mac {lt[1] or 0:,}, other apps {lt[4] or 0:,}, other devices {lt[2] or 0:,}); today {today}")
+    print(f"Plays logged:    {lt[0]:,} (mac {lt[1] or 0:,}, other apps {lt[4] or 0:,}, YT Music history {lt[5] or 0:,}, other devices {lt[2] or 0:,}); today {today}")
     print(f"Last play:       {lt[3] or '—'}")
     if snap:
         print(f"Last snapshot:   {datetime.fromtimestamp(snap['ts']):%Y-%m-%d %H:%M} ({snap['kind']}), "
@@ -386,6 +423,11 @@ def main(argv=None):
     s = sub.add_parser("previews", help="song previews (30 s, from Apple) as Play story's soundtrack: on / off")
     s.add_argument("state", nargs="?", choices=["on", "off", "status"], default="status")
     s.set_defaults(fn=cmd_previews)
+
+    s = sub.add_parser("import-yt", help="import your YT Music history from a Google Takeout export (JSON)")
+    s.add_argument("file", nargs="?", help="the Takeout zip, folder or watch-history.json (default: newest in ~/Downloads)")
+    s.add_argument("--no-lookup", action="store_true", help="don't look up song lengths, albums and covers with Apple")
+    s.set_defaults(fn=cmd_import_yt)
 
     s = sub.add_parser("update", help="get the latest version from GitHub and rebuild what changed")
     s.add_argument("--rebuild", action="store_true", help="rebuild the logger, renderer and app even if unchanged")

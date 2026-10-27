@@ -335,6 +335,9 @@ def alltime(con, slides_only=False):
     if lib["yt_plays"]:
         note += (f"They also include {lib['yt_plays']:,} YT Music play{'s' if lib['yt_plays'] != 1 else ''} logged on this Mac, "
                  "timed live; YT Music has no genres, so those count toward a genre only when the song is also in your library. ")
+    if lib["yt_history"]:
+        note += (f"Plus {lib['yt_history']:,} plays from your imported YT Music history (Google Takeout, every device): "
+                 "YouTube lists a song as soon as it starts, so skips count too, and their time is each song's length. ")
     html = R.page("Wrapped All Time", "All time", "Your All-Time, Wrapped",
                   f"{lib['tracks']:,} tracks in your library", stats, body, footer(con, note),
                   story=_story(sl), story_css=SL.CSS, story_js=SL.JS)
