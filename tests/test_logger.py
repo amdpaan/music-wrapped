@@ -218,7 +218,8 @@ class LoggerTest(unittest.TestCase):
     def np(self, state, title="YT Song", elapsed=0.0, duration=30.0, **extra):
         line = {"state": state}
         if state != "Stopped":
-            line.update(title=title, artist="YT Artist", album="YT Album", duration=duration, elapsed=elapsed, **extra)
+            line.update(title=title, artist="YT Artist", album="YT Album", duration=duration, elapsed=elapsed)
+            line.update(extra)
         with open(self.np_feed, "a") as f:
             f.write(json.dumps(line) + "\n")
         time.sleep(0.4)  # tail -f polls
@@ -258,6 +259,18 @@ class LoggerTest(unittest.TestCase):
         rows = self.rows()
         self.assertEqual([r["title"] for r in rows], ["One", "One"])
         self.assertEqual([r["skipped"] for r in rows], [1, 1])
+
+    def test_other_app_length_and_album_arriving_late_are_kept(self):
+        # YT Music sends the title first, then the length and album a moment later.
+        self.now_playing()
+        self.start()
+        self.np("Playing", "Late", duration=0, album="")
+        self.np("Playing", "Late", duration=60, elapsed=0.4, album="Late Album")
+        time.sleep(3)                     # counted (2.5 s of 60: a skip)
+        self.np("Stopped")
+        rows = self.rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((rows[0]["duration"], rows[0]["album"], rows[0]["skipped"]), (60, "Late Album", 1))
 
     def test_other_app_restart_resumes_the_same_song(self):
         self.now_playing()

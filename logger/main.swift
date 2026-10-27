@@ -148,15 +148,22 @@ final class DB {
     /// Returns false if the row is gone (e.g. removed by hand), so the caller can insert instead.
     func updatePlay(_ id: Int64, _ p: Play, source: String, listened: Double, ended: Date) -> Bool {
         var st: OpaquePointer?
-        let sql = "UPDATE plays SET seconds_listened = ?, skipped = ?, ended_ts = ? WHERE id = ? AND source = ?"
+        // Also fills in a length or album that arrived after the row was written (other apps).
+        let sql = """
+            UPDATE plays SET seconds_listened = ?, skipped = ?, ended_ts = ?, duration = COALESCE(duration, ?),
+                             album = CASE WHEN COALESCE(album, '') = '' THEN ? ELSE album END
+            WHERE id = ? AND source = ?
+            """
         guard sqlite3_prepare_v2(handle, sql, -1, &st, nil) == SQLITE_OK else { return false }
         defer { sqlite3_finalize(st) }
         let skipped = p.duration > 0 && listened < p.duration * skipFraction
         sqlite3_bind_double(st, 1, listened.rounded())
         sqlite3_bind_int(st, 2, skipped ? 1 : 0)
         sqlite3_bind_int64(st, 3, Int64(ended.timeIntervalSince1970))
-        sqlite3_bind_int64(st, 4, id)
-        sqlite3_bind_text(st, 5, source, -1, SQLITE_TRANSIENT)
+        if p.duration > 0 { sqlite3_bind_double(st, 4, p.duration) } else { sqlite3_bind_null(st, 4) }
+        sqlite3_bind_text(st, 5, p.album, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int64(st, 6, id)
+        sqlite3_bind_text(st, 7, source, -1, SQLITE_TRANSIENT)
         guard sqlite3_step(st) == SQLITE_DONE else {
             log("update failed: \(String(cString: sqlite3_errmsg(handle)))")
             return false
@@ -297,9 +304,9 @@ struct Play: Codable {
     let pid: String?
     let title: String
     let artist: String
-    let album: String
+    var album: String              // var: other apps may send album and length after the title
     var genre: String? = nil       // optional so pending.json files from older versions still decode
-    let duration: Double
+    var duration: Double
     let start: Date
     var listened: Double = 0       // seconds accumulated before the current playing stretch
     var playingSince: Date?        // nil while paused
@@ -368,6 +375,9 @@ final class Tracker {
                 cur.listened += now.timeIntervalSince(since)
                 cur.playingSince = nil
             }
+            // Details that arrived late (YT Music sends the length and album after the title).
+            if cur.duration <= 0, incoming.duration > 0 { cur.duration = incoming.duration }
+            if cur.album.isEmpty, !incoming.album.isEmpty { cur.album = incoming.album }
             cur.lastPosition = position
             cur.positionAt = now
             current = cur
