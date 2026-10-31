@@ -296,7 +296,7 @@ _MASCOT_PIXELS = [
     "..GGGGGGGGGGGG..",
     "...K.K....K.K...",
 ]
-_MASCOT_COLORS = {"G": "#1ed760", "L": "#c9f7da", "D": "#0b2e19", "W": "#ffffff", "K": "#0b2e19"}
+_MASCOT_COLORS = {"G": "#4aa3ff", "L": "#d6ebff", "D": "#0b2240", "W": "#ffffff", "K": "#0b2240"}
 MASCOT = ('<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg">'
           + "".join(f'<rect x="{x}" y="{y}" width="1" height="1" fill="{_MASCOT_COLORS[ch]}"/>'
                     for y, row in enumerate(_MASCOT_PIXELS) for x, ch in enumerate(row) if ch != ".")
